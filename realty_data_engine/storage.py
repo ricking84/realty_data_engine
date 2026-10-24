@@ -44,8 +44,32 @@ SCHEMA_STATEMENTS = (
         subdivision NVARCHAR(500) NULL,
         valuation DECIMAL(18, 2) NULL,
         square_feet INT NULL,
-        raw_data NVARCHAR(MAX) NOT NULL
+        raw_data NVARCHAR(MAX) NOT NULL,
+        applied_date DATE NULL,
+        permit_subtype NVARCHAR(255) NULL,
+        parcel_number NVARCHAR(100) NULL,
+        status NVARCHAR(100) NULL,
+        total_fees DECIMAL(18, 2) NULL,
+        total_paid DECIMAL(18, 2) NULL,
+        contacts_json NVARCHAR(MAX) NOT NULL DEFAULT N'{}'
     )
+    """,
+    """
+    IF COL_LENGTH(N'dbo.building_permits', N'applied_date') IS NULL
+        ALTER TABLE dbo.building_permits ADD applied_date DATE NULL;
+    IF COL_LENGTH(N'dbo.building_permits', N'permit_subtype') IS NULL
+        ALTER TABLE dbo.building_permits ADD permit_subtype NVARCHAR(255) NULL;
+    IF COL_LENGTH(N'dbo.building_permits', N'parcel_number') IS NULL
+        ALTER TABLE dbo.building_permits ADD parcel_number NVARCHAR(100) NULL;
+    IF COL_LENGTH(N'dbo.building_permits', N'status') IS NULL
+        ALTER TABLE dbo.building_permits ADD status NVARCHAR(100) NULL;
+    IF COL_LENGTH(N'dbo.building_permits', N'total_fees') IS NULL
+        ALTER TABLE dbo.building_permits ADD total_fees DECIMAL(18, 2) NULL;
+    IF COL_LENGTH(N'dbo.building_permits', N'total_paid') IS NULL
+        ALTER TABLE dbo.building_permits ADD total_paid DECIMAL(18, 2) NULL;
+    IF COL_LENGTH(N'dbo.building_permits', N'contacts_json') IS NULL
+        ALTER TABLE dbo.building_permits ADD contacts_json NVARCHAR(MAX) NOT NULL
+            CONSTRAINT DF_building_permits_contacts_json DEFAULT N'{}';
     """,
     """
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_building_permits_permit_number')
@@ -56,8 +80,9 @@ SCHEMA_STATEMENTS = (
 _INSERT_PERMIT_SQL = """
 INSERT INTO dbo.building_permits (
     report_id, page_number, line_number, permit_number, issue_date, address, permit_type,
-    description, contractor, owner, subdivision, valuation, square_feet, raw_data
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    description, contractor, owner, subdivision, valuation, square_feet, raw_data,
+    applied_date, permit_subtype, parcel_number, status, total_fees, total_paid, contacts_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -164,7 +189,8 @@ class AzureSqlStore:
                         (
                             report_id, r.page_number, r.row_number, r.permit_number, r.issue_date, r.address,
                             r.permit_type, r.description, r.contractor, r.owner, r.subdivision, r.valuation,
-                            r.square_feet, r.raw_json,
+                            r.square_feet, r.raw_json, r.applied_date, r.permit_subtype, r.parcel_number,
+                            r.status, r.total_fees, r.total_paid, r.contacts_json,
                         )
                         for r in records
                     ],

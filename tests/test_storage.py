@@ -93,6 +93,9 @@ def test_save_report_inserts_then_skips_unchanged_then_replaces(permit_pdf):
     assert store.save_report("https://x/a.pdf", "Jan", "a" * 64, records) is True
     assert len(conn.permits) == 2
     assert conn.permits[0][0] == 1 and conn.permits[0][3] == "BP-2024-0001"
+    assert len(conn.permits[0]) == 21
+    assert conn.permits[0][15] is None
+    assert conn.permits[0][20] == "{}"
 
     assert store.save_report("https://x/a.pdf", "Jan", "a" * 64, records) is False
     assert len(conn.permits) == 2

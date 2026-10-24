@@ -44,12 +44,13 @@ Reports already in the database are skipped unless `--force` is given.
 
 - `dbo.building_activity_reports` – one row per PDF (`source_url` is unique, `content_sha256`, `title`, `permit_count`, `ingested_at`).
 - `dbo.building_permits` – one row per permit, linked by `report_id`, with normalized columns
-  (`permit_number`, `issue_date`, `address`, `permit_type`, `description`, `contractor`, `owner`,
-  `subdivision`, `valuation`, `square_feet`) plus `raw_data`, a JSON object holding every column
-  exactly as it appeared in the PDF.
+  (`permit_number`, `applied_date`, `issue_date`, `address`, `permit_type`, `permit_subtype`,
+  `parcel_number`, `status`, `subdivision`, `valuation`, `total_fees`, `total_paid`, `contractor`,
+  `owner`) plus `contacts_json` for all contact types and `raw_data` for the extracted source values.
 
-PDF column headers are matched to the normalized columns by keyword (e.g. "Permit #", "Date Issued",
-"Job Valuation"); unrecognized columns are still kept in `raw_data`.
+The Bentonville report parser reads the permit fields from the aligned white rows, associates the
+light-blue contact rows with each permit, and ignores the monthly summary. Existing databases are
+updated with the additional columns when the schema is ensured.
 
 ## Tests
 
