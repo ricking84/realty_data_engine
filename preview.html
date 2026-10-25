@@ -1,0 +1,1159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Permit Ledger | Realty Data Engine</title>
+  <style>
+    @import url("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
+
+    :root {
+      color-scheme: light;
+      --ink: #172923;
+      --muted: #65736c;
+      --line: #d9e1dc;
+      --paper: #f4f6f2;
+      --surface: #fff;
+      --green: #245c45;
+      --green-dark: #174432;
+      --lime: #d8ed8c;
+      --orange: #d46f42;
+      --soft-green: #eaf2ed;
+      --shadow: 0 14px 40px rgb(25 55 39 / 8%);
+      font-family: "Aptos", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background-color: var(--paper);
+      background-image: linear-gradient(rgb(36 92 69 / 3%) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(36 92 69 / 3%) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+
+    button, input, select { font: inherit; }
+
+    button:focus-visible, input:focus-visible, select:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 3px solid var(--orange);
+      outline-offset: 2px;
+    }
+
+    .shell { max-width: 1480px; margin: 0 auto; padding: 30px 36px 48px; }
+
+    .topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding-bottom: 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; }
+
+    .brand-mark {
+      display: grid;
+      width: 38px;
+      aspect-ratio: 1;
+      place-items: center;
+      color: var(--lime);
+      background: var(--green-dark);
+      font-family: Georgia, serif;
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .brand-name {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
+
+    .brand-caption { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+
+    .open-button {
+      display: inline-flex;
+      min-height: 42px;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      padding: 0 16px;
+      border: 1px solid var(--green-dark);
+      border-radius: 3px;
+      color: white;
+      background: var(--green-dark);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      transition: background-color 140ms ease, transform 140ms ease;
+    }
+
+    .open-button:hover { background: var(--green); transform: translateY(-1px); }
+    .open-button svg { width: 16px; height: 16px; }
+    .file-input { display: none; }
+
+    .intro {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 35px 0 27px;
+    }
+
+    .eyebrow {
+      margin: 0 0 9px;
+      color: var(--green);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 38px;
+      font-weight: 500;
+      line-height: 1.05;
+    }
+
+    .dataset-name { margin: 9px 0 0; color: var(--muted); font-size: 13px; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(130px, 1fr));
+      gap: 1px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: var(--line);
+      box-shadow: var(--shadow);
+    }
+
+    .metric { min-height: 102px; padding: 17px 19px; background: var(--surface); }
+    .metric-label { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; }
+    .metric-value { margin-top: 9px; font-family: Georgia, serif; font-size: 27px; line-height: 1; }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-bottom: 0;
+      background: #fbfcfa;
+    }
+
+    .filters { display: flex; flex: 1; flex-wrap: wrap; gap: 10px; min-width: 0; }
+    .date-filters { display: flex; gap: 6px; }
+    .filter-dropdown { position: relative; min-width: 0; }
+    #report-filter { width: 190px; }
+    #valuation-filter { width: 180px; }
+    #issue-month { width: 120px; }
+    #issue-day { width: 88px; }
+    #issue-year { width: 96px; }
+    .filter-trigger { display: flex; width: 100%; height: 40px; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; overflow: hidden; border: 1px solid var(--line); border-radius: 2px; color: var(--ink); background: var(--surface); cursor: pointer; font-size: 12px; text-align: left; }
+    .filter-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .filter-trigger svg { width: 13px; height: 13px; flex: none; color: var(--muted); }
+    .filter-trigger:disabled { color: var(--muted); background: #f2f4f1; cursor: default; }
+    .filter-menu { position: absolute; z-index: 800; top: calc(100% + 5px); left: 0; width: max-content; min-width: 220px; max-width: min(320px, calc(100vw - 32px)); max-height: 340px; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 2px; background: var(--surface); box-shadow: 0 10px 28px rgb(25 55 39 / 16%); }
+    .filter-menu[hidden] { display: none; }
+    .filter-menu-actions { display: flex; justify-content: flex-end; padding: 2px 4px 7px; border-bottom: 1px solid var(--line); }
+    .filter-clear { padding: 4px 5px; border: 0; color: var(--green); background: transparent; cursor: pointer; font-size: 11px; font-weight: 700; }
+    .filter-clear:disabled { color: #9aa49e; cursor: default; }
+    .filter-options { display: grid; gap: 1px; padding-top: 5px; }
+    .filter-option { display: flex; align-items: center; gap: 9px; padding: 7px 5px; color: var(--ink); cursor: pointer; font-size: 12px; }
+    .filter-option:hover { background: #f2f6f2; }
+    .filter-option input { width: 15px; height: 15px; margin: 0; accent-color: var(--green); }
+    .view-tabs { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
+    .view-tab { min-width: 70px; height: 43px; margin-bottom: -1px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; }
+    .view-tab[aria-selected="true"] { border-bottom-color: var(--green); color: var(--green-dark); }
+
+    .search-wrap { position: relative; flex: 1 1 280px; min-width: 220px; max-width: 440px; }
+    .search-wrap svg { position: absolute; top: 11px; left: 12px; width: 16px; height: 16px; color: var(--muted); pointer-events: none; }
+
+    .search {
+      width: 100%;
+      height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      color: var(--ink);
+      background: var(--surface);
+      font-size: 13px;
+    }
+
+    .search { padding: 0 12px 0 38px; }
+    .result-count { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+    .table-frame {
+      overflow: auto;
+      min-height: 280px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .table-frame[hidden], .map-panel[hidden], .table-footer[hidden] { display: none; }
+
+    .map-panel {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: #e8eee9;
+      box-shadow: var(--shadow);
+    }
+
+    #permit-map { width: 100%; height: min(68vh, 700px); min-height: 420px; background: #e8eee9; }
+    .map-status { position: absolute; z-index: 500; top: 12px; right: 12px; max-width: min(360px, calc(100% - 24px)); margin: 0; padding: 9px 12px; border: 1px solid var(--line); color: var(--ink); background: rgb(255 255 255 / 94%); box-shadow: 0 2px 10px rgb(25 55 39 / 12%); font-size: 12px; }
+    .leaflet-tooltip.permit-hover-tooltip { padding: 9px 11px; border: 1px solid var(--line); border-radius: 2px; color: var(--ink); background: white; box-shadow: 0 5px 16px rgb(25 55 39 / 18%); }
+    .permit-hover-address { display: block; color: var(--green-dark); font-size: 12px; font-weight: 750; }
+    .permit-hover-valuation { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .map-legend { position: absolute; z-index: 500; bottom: 16px; left: 16px; width: min(240px, calc(100% - 32px)); max-height: min(55vh, 400px); overflow: auto; padding: 12px; border: 1px solid var(--line); background: rgb(255 255 255 / 96%); box-shadow: 0 2px 10px rgb(25 55 39 / 14%); }
+    .map-legend h2 { margin: 0 0 8px; font-size: 11px; letter-spacing: .6px; text-transform: uppercase; }
+    .legend-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+    .legend-item { margin: 0; }
+    .legend-toggle { display: flex; width: 100%; align-items: center; gap: 8px; padding: 4px 5px; border: 1px solid transparent; border-radius: 2px; color: var(--ink); background: transparent; cursor: pointer; font: inherit; font-size: 11px; text-align: left; }
+    .legend-toggle:hover { background: #f2f6f2; }
+    .legend-toggle[aria-pressed="true"] { border-color: var(--line); background: var(--soft-green); font-weight: 750; }
+    .legend-swatch { width: 12px; height: 12px; flex: none; border: 1px solid rgb(23 41 35 / 45%); border-radius: 50%; }
+
+    table { width: 100%; min-width: 880px; border-collapse: collapse; text-align: left; }
+    thead { position: sticky; top: 0; z-index: 1; background: #eef3ef; }
+    th { padding: 12px 15px; color: #53635a; font-size: 10px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; white-space: nowrap; }
+    .sort-button { display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; color: inherit; background: transparent; cursor: pointer; font: inherit; letter-spacing: inherit; text-transform: inherit; }
+    .sort-indicator { color: var(--green); font-size: 12px; }
+    td { padding: 13px 15px; border-top: 1px solid #e8ede9; font-size: 12px; vertical-align: middle; }
+    tbody tr { transition: background-color 100ms ease; }
+    tbody tr:hover { background: #f7faf7; }
+    .permit-link { padding: 0; border: 0; color: var(--green); background: none; cursor: pointer; font-size: 12px; font-weight: 750; text-align: left; }
+    .permit-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+    .address { min-width: 190px; max-width: 280px; font-weight: 650; }
+    .subtext { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 400; }
+    .type-cell { min-width: 145px; max-width: 230px; }
+    .money { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    th.money { text-align: right; }
+    .status { display: inline-block; padding: 4px 7px; border-radius: 2px; color: var(--green-dark); background: var(--soft-green); font-size: 10px; font-weight: 750; white-space: nowrap; }
+    .status-empty { color: #69766f; background: #f0f2ef; }
+
+    .empty-state {
+      display: grid;
+      min-height: 278px;
+      place-content: center;
+      padding: 30px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .empty-state[hidden] { display: none; }
+    .empty-state strong { color: var(--ink); font-family: Georgia, serif; font-size: 22px; font-weight: 500; }
+    .empty-state p { margin: 8px 0 0; font-size: 13px; }
+
+    .table-footer {
+      display: flex;
+      min-height: 52px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 15px;
+      border: 1px solid var(--line);
+      border-top: 0;
+      color: var(--muted);
+      background: #fbfcfa;
+      font-size: 11px;
+    }
+
+    .more-button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 2px; color: var(--green-dark); background: white; cursor: pointer; font-size: 11px; font-weight: 700; }
+    .more-button:hover { background: var(--soft-green); }
+    .more-button[hidden] { display: none; }
+    .notice { min-height: 18px; padding-top: 9px; color: #a64f2d; font-size: 12px; }
+
+    dialog {
+      width: min(720px, calc(100vw - 28px));
+      max-height: min(84vh, 800px);
+      overflow: hidden;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      color: var(--ink);
+      background: var(--surface);
+      box-shadow: 0 24px 80px rgb(18 39 28 / 24%);
+    }
+
+    dialog::backdrop { background: rgb(17 35 26 / 52%); }
+    .detail-head { display: flex; justify-content: space-between; gap: 18px; padding: 22px 24px 18px; border-bottom: 1px solid var(--line); }
+    .detail-head h2 { margin: 0; font-family: Georgia, serif; font-size: 25px; font-weight: 500; }
+    .detail-head p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+    .close-button { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 2px; color: var(--ink); background: white; cursor: pointer; font-size: 19px; line-height: 1; }
+    .detail-body { overflow: auto; max-height: calc(84vh - 90px); padding: 20px 24px 26px; }
+    .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; margin: 0; }
+    .detail-item { padding: 12px 0; border-bottom: 1px solid #e8ede9; }
+    .detail-item dt { margin-bottom: 5px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; }
+    .detail-item dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+    .detail-section { margin-top: 20px; }
+    .detail-section h3 { margin: 0 0 9px; font-size: 11px; letter-spacing: .7px; text-transform: uppercase; }
+    .json-toggle { padding: 0; border: 0; color: var(--green); background: none; cursor: pointer; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+    .detail-section pre { overflow: auto; max-height: 260px; margin: 0; padding: 13px; border: 1px solid var(--line); background: #f6f8f5; font: 11px/1.55 Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .detail-section pre[hidden] { display: none; }
+    .report-source { display: inline-block; margin-top: 6px; color: var(--green); font-size: 11px; overflow-wrap: anywhere; }
+
+    @media (max-width: 800px) {
+      .shell { padding: 20px 18px 36px; }
+      .intro { align-items: stretch; flex-direction: column; }
+      .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .metric { min-height: 86px; padding: 13px 12px; }
+      .metric-value { font-size: 22px; }
+      .toolbar { align-items: stretch; flex-direction: column; }
+      .filters { flex-direction: column; }
+      .search-wrap { max-width: none; }
+      .filter-dropdown { flex: 1 1 130px; }
+      .date-filters > .filter-dropdown { flex: 1; }
+      .result-count { align-self: flex-end; }
+      #permit-map { height: 62vh; min-height: 340px; }
+    }
+
+    @media (max-width: 480px) {
+      .shell { padding: 14px 12px 28px; }
+      .topline { align-items: flex-start; }
+      .brand-caption { max-width: 155px; line-height: 1.3; }
+      .open-button { min-height: 38px; padding: 0 10px; font-size: 12px; }
+      h1 { font-size: 33px; }
+      .metrics { grid-template-columns: 1fr; }
+      .metric { display: flex; min-height: auto; align-items: baseline; justify-content: space-between; gap: 10px; padding: 12px; }
+      .metric-value { margin: 0; font-size: 21px; }
+      .detail-head { padding: 18px 17px 14px; }
+      .detail-body { padding: 15px 17px 22px; }
+      .detail-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topline">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">R</div>
+        <div>
+          <p class="brand-name">Realty Data Engine</p>
+          <p class="brand-caption">Bentonville building activity</p>
+        </div>
+      </div>
+      <label class="open-button" for="dataset-file">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 14v5h14v-5"/></svg>
+        Open JSON
+      </label>
+      <input class="file-input" id="dataset-file" type="file" accept=".json,application/json">
+    </header>
+
+    <section class="intro" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Dataset preview</p>
+        <h1 id="page-title">Permit ledger</h1>
+        <p class="dataset-name" id="dataset-name">No dataset loaded</p>
+      </div>
+      <div class="metrics" aria-label="Dataset summary">
+        <div class="metric"><div class="metric-label">Permits</div><div class="metric-value" id="permit-total">--</div></div>
+        <div class="metric"><div class="metric-label">Reports</div><div class="metric-value" id="report-total">--</div></div>
+        <div class="metric"><div class="metric-label">Total valuation</div><div class="metric-value" id="valuation-total">--</div></div>
+      </div>
+    </section>
+
+    <section aria-label="Permit records">
+      <div class="view-tabs" role="tablist" aria-label="Permit view">
+        <button class="view-tab" id="list-view-tab" type="button" role="tab" aria-selected="true" aria-controls="table-frame">List</button>
+        <button class="view-tab" id="map-view-tab" type="button" role="tab" aria-selected="false" aria-controls="map-panel" tabindex="-1">Map</button>
+      </div>
+      <div class="toolbar">
+        <div class="filters">
+          <label class="search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.2 4.2"/></svg>
+            <input class="search" id="search" type="search" placeholder="Search permits, addresses, contractors" aria-label="Search permits">
+          </label>
+          <div class="filter-dropdown" id="report-filter"></div>
+          <div class="filter-dropdown" id="permit-type-filter"></div>
+          <div class="date-filters" role="group" aria-label="Filter by issue date">
+            <div class="filter-dropdown" id="issue-month"></div>
+            <div class="filter-dropdown" id="issue-day"></div>
+            <div class="filter-dropdown" id="issue-year"></div>
+          </div>
+          <div class="filter-dropdown" id="valuation-filter"></div>
+        </div>
+        <div class="result-count" id="result-count" aria-live="polite">0 records</div>
+      </div>
+
+      <div class="table-frame" id="table-frame" role="tabpanel" aria-labelledby="list-view-tab">
+        <div class="empty-state" id="empty-state">
+          <div><strong>No dataset loaded</strong><p>Select a dry-run JSON file to view permit records.</p></div>
+        </div>
+        <table id="permit-table" hidden>
+          <thead>
+            <tr>
+              <th>Permit</th><th>Address</th><th>Type</th><th>Status</th>
+              <th aria-sort="none"><button class="sort-button" type="button" data-sort="issue_date"><span>Issue date</span><span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th class="money" aria-sort="none"><button class="sort-button" type="button" data-sort="valuation"><span>Valuation</span><span class="sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th>Report</th>
+            </tr>
+          </thead>
+          <tbody id="permit-rows"></tbody>
+        </table>
+      </div>
+      <section class="map-panel" id="map-panel" role="tabpanel" aria-labelledby="map-view-tab" hidden>
+        <div id="permit-map" role="region" aria-label="Permit locations around Bentonville"></div>
+        <p class="map-status" id="map-status" role="status" aria-live="polite">Open the map to look up permit parcel numbers.</p>
+        <aside class="map-legend" aria-label="Parcel valuation legend">
+          <h2>Total valuation by parcel</h2>
+          <ul class="legend-list" id="valuation-legend"></ul>
+        </aside>
+      </section>
+      <div class="table-footer">
+        <span id="table-summary">Choose a dataset to begin.</span>
+        <button class="more-button" id="show-more" type="button" hidden>Show more</button>
+      </div>
+      <div class="notice" id="notice" role="status" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <dialog id="record-dialog" aria-labelledby="detail-title">
+    <div class="detail-head">
+      <div><h2 id="detail-title">Permit details</h2><p id="detail-subtitle"></p></div>
+      <button class="close-button" id="close-dialog" type="button" aria-label="Close details">&times;</button>
+    </div>
+    <div class="detail-body" id="detail-body"></div>
+  </dialog>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const filterDropdowns = [];
+    const fileInput = document.querySelector("#dataset-file");
+    const searchInput = document.querySelector("#search");
+    const reportFilter = createFilterDropdown("report-filter", "All reports", "Filter by report");
+    const permitTypeFilter = createFilterDropdown("permit-type-filter", "All permit types", "Filter by permit type");
+    const issueMonthFilter = createFilterDropdown("issue-month", "All months", "Filter by issue month");
+    const issueDayFilter = createFilterDropdown("issue-day", "All days", "Filter by issue day");
+    const issueYearFilter = createFilterDropdown("issue-year", "All years", "Filter by issue year");
+    const valuationFilter = createFilterDropdown("valuation-filter", "Any valuation", "Filter by valuation");
+    const listViewTab = document.querySelector("#list-view-tab");
+    const mapViewTab = document.querySelector("#map-view-tab");
+    const tableFrame = document.querySelector("#table-frame");
+    const tableFooter = document.querySelector(".table-footer");
+    const mapPanel = document.querySelector("#map-panel");
+    const mapStatus = document.querySelector("#map-status");
+    const valuationLegend = document.querySelector("#valuation-legend");
+    const permitTable = document.querySelector("#permit-table");
+    const permitRows = document.querySelector("#permit-rows");
+    const emptyState = document.querySelector("#empty-state");
+    const notice = document.querySelector("#notice");
+    const dialog = document.querySelector("#record-dialog");
+    const pageSize = 100;
+    const mapCenter = [36.3729, -94.2088];
+    const valuationBands = [
+      { id: "1-10000", label: "$1-$10,000", min: 1, max: 10000, color: "#8c332b" },
+      { id: "10001-25000", label: "$10,001-$25,000", min: 10001, max: 25000, color: "#d5913f" },
+      { id: "25001-50000", label: "$25,001-$50,000", min: 25001, max: 50000, color: "#d3b748" },
+      { id: "50001-100000", label: "$50,001-$100,000", min: 50001, max: 100000, color: "#9eb84e" },
+      { id: "100001-250000", label: "$100,001-$250,000", min: 100001, max: 250000, color: "#548a4a" },
+      { id: "250001-500000", label: "$250,001-$500,000", min: 250001, max: 500000, color: "#477d48" },
+      { id: "500001-1000000", label: "$500,001-$1,000,000", min: 500001, max: 1000000, color: "#326f43" },
+      { id: "1000001-plus", label: "$1,000,001+", min: 1000001, max: Infinity, color: "#245f3d" },
+      { id: "no-valuation", label: "No valuation", color: "#68746e" }
+    ];
+    const parcelCacheKey = "realty-data-engine-parcel-centers-v1";
+    const parcelQueryDelayMs = 1000;
+    let records = [];
+    let visibleLimit = pageSize;
+    let sortField = null;
+    let sortDirection = "ascending";
+    let currentView = "list";
+    let permitMap = null;
+    let markerLayer = null;
+    let mapRenderId = 0;
+    let lastParcelQueryAt = 0;
+    let parcelQueryQueue = Promise.resolve();
+    const parcelRequests = new Map();
+    let parcelCache = {};
+
+    try {
+      parcelCache = JSON.parse(localStorage.getItem(parcelCacheKey) || "{}");
+    } catch {
+      parcelCache = {};
+    }
+
+    function displayValue(value) {
+      return value === null || value === undefined || value === "" ? "—" : String(value);
+    }
+
+    function formatDate(value) {
+      if (!value) return "—";
+      const date = new Date(`${value}T00:00:00`);
+      return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date);
+    }
+
+    function numericValue(value) {
+      if (value === null || value === undefined || value === "") return 0;
+      const number = Number(String(value).replace(/[$,\s]/g, ""));
+      return Number.isFinite(number) ? number : 0;
+    }
+
+    function formatMoney(value, compact = false) {
+      if (value === null || value === undefined || value === "") return "—";
+      const number = numericValue(value);
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0,
+        notation: compact ? "compact" : "standard"
+      }).format(number);
+    }
+
+    function createFilterDropdown(rootId, placeholder, label) {
+      const root = document.querySelector(`#${rootId}`);
+      const selected = new Set();
+      const options = new Map();
+      const trigger = document.createElement("button");
+      trigger.className = "filter-trigger";
+      trigger.type = "button";
+      trigger.setAttribute("aria-label", label);
+      trigger.setAttribute("aria-haspopup", "true");
+      trigger.setAttribute("aria-expanded", "false");
+
+      const summary = document.createElement("span");
+      const chevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      chevron.setAttribute("viewBox", "0 0 16 16");
+      chevron.setAttribute("fill", "none");
+      chevron.setAttribute("stroke", "currentColor");
+      chevron.setAttribute("stroke-width", "1.7");
+      chevron.setAttribute("aria-hidden", "true");
+      const chevronPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      chevronPath.setAttribute("d", "m3.5 6 4.5 4 4.5-4");
+      chevron.append(chevronPath);
+      trigger.append(summary, chevron);
+
+      const menu = document.createElement("div");
+      menu.className = "filter-menu";
+      menu.hidden = true;
+      menu.setAttribute("role", "group");
+      menu.setAttribute("aria-label", label);
+      const actions = document.createElement("div");
+      actions.className = "filter-menu-actions";
+      const clearButton = document.createElement("button");
+      clearButton.className = "filter-clear";
+      clearButton.type = "button";
+      clearButton.textContent = "Clear selection";
+      actions.append(clearButton);
+      const optionsList = document.createElement("div");
+      optionsList.className = "filter-options";
+      menu.append(actions, optionsList);
+      root.replaceChildren(trigger, menu);
+
+      function updateSummary() {
+        const selectedLabels = [...selected].map((value) => options.get(value)?.label).filter(Boolean);
+        summary.textContent = selectedLabels.length === 0
+          ? placeholder
+          : selectedLabels.length === 1 ? selectedLabels[0] : `${selectedLabels.length} selected`;
+        trigger.setAttribute("aria-label", `${label}: ${summary.textContent}`);
+        trigger.setAttribute("aria-expanded", String(!menu.hidden));
+        clearButton.disabled = selected.size === 0;
+      }
+
+      function clear() {
+        selected.clear();
+        optionsList.querySelectorAll("input[type=checkbox]").forEach((checkbox) => { checkbox.checked = false; });
+        updateSummary();
+        render();
+      }
+
+      trigger.addEventListener("click", () => {
+        const opening = menu.hidden;
+        filterDropdowns.forEach((filter) => filter.close());
+        menu.hidden = !opening;
+        updateSummary();
+      });
+      clearButton.addEventListener("click", clear);
+      root.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !menu.hidden) {
+          menu.hidden = true;
+          updateSummary();
+          trigger.focus();
+        }
+      });
+
+      let disabled = false;
+      const filter = {
+        getValues: () => new Set(selected),
+        close: () => {
+          menu.hidden = true;
+          updateSummary();
+        },
+        setOptions: (items) => {
+          selected.clear();
+          options.clear();
+          optionsList.replaceChildren();
+          items.forEach(({ value, label: optionLabel }) => {
+            const optionValue = String(value);
+            options.set(optionValue, { label: optionLabel });
+            const option = document.createElement("label");
+            option.className = "filter-option";
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.value = optionValue;
+            checkbox.addEventListener("change", () => {
+              if (checkbox.checked) selected.add(optionValue);
+              else selected.delete(optionValue);
+              updateSummary();
+              render();
+            });
+            const text = document.createElement("span");
+            text.textContent = optionLabel;
+            option.append(checkbox, text);
+            optionsList.append(option);
+          });
+          trigger.disabled = disabled || items.length === 0;
+          updateSummary();
+        },
+        setDisabled: (value) => {
+          disabled = value;
+          trigger.disabled = disabled || options.size === 0;
+        }
+      };
+      filterDropdowns.push(filter);
+      updateSummary();
+      return filter;
+    }
+
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".filter-dropdown")) filterDropdowns.forEach((filter) => filter.close());
+    });
+
+    function flattenDataset(data) {
+      if (Array.isArray(data)) {
+        return data.map((permit) => ({ permit, report: { title: "Imported dataset" } }));
+      }
+      if (!data || typeof data !== "object" || !Array.isArray(data.reports)) {
+        throw new Error("Expected a dry-run object containing a reports array.");
+      }
+      return data.reports.flatMap((report) => {
+        if (!Array.isArray(report.permits)) return [];
+        return report.permits.map((permit) => ({ permit, report }));
+      });
+    }
+
+    function setDataset(data, filename) {
+      const entries = flattenDataset(data);
+      records = entries.map(({ permit, report }, index) => ({
+        ...permit,
+        _reportTitle: report.title || report.url || `Report ${index + 1}`,
+        _reportUrl: report.url || ""
+      }));
+      visibleLimit = pageSize;
+      document.querySelector("#dataset-name").textContent = filename || "Imported dataset";
+      document.querySelector("#permit-total").textContent = records.length.toLocaleString();
+      document.querySelector("#report-total").textContent = new Set(records.map((record) => record._reportTitle)).size.toLocaleString();
+      const valuation = records.reduce((total, record) => total + numericValue(record.valuation), 0);
+      document.querySelector("#valuation-total").textContent = formatMoney(valuation, true);
+      populateReportFilter();
+      populatePermitTypeFilter();
+      populateIssueDateFilters();
+      valuationFilter.setOptions(valuationBands.map((band) => ({ value: band.id, label: band.label })));
+      renderValuationLegend();
+      notice.textContent = "";
+      render();
+    }
+
+    function populateReportFilter() {
+      const titles = [...new Set(records.map((record) => record._reportTitle))];
+      reportFilter.setOptions(titles.map((title) => ({ value: title, label: title })));
+    }
+
+    function populatePermitTypeFilter() {
+      const permitTypes = [...new Set(records.map((record) => record.permit_type).filter(Boolean))]
+        .sort((left, right) => left.localeCompare(right));
+      permitTypeFilter.setOptions(permitTypes.map((permitType) => ({ value: permitType, label: permitType })));
+    }
+
+    function issueDateParts(value) {
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
+      return match ? { year: match[1], month: match[2], day: match[3] } : null;
+    }
+
+    function populateIssueDateFilters() {
+      const monthNames = new Intl.DateTimeFormat(undefined, { month: "long", timeZone: "UTC" });
+      const months = [];
+      for (let month = 1; month <= 12; month += 1) {
+        const value = String(month).padStart(2, "0");
+        months.push({ value, label: monthNames.format(new Date(Date.UTC(2020, month - 1, 1))) });
+      }
+      issueMonthFilter.setOptions(months);
+
+      const days = [];
+      for (let day = 1; day <= 31; day += 1) {
+        const value = String(day).padStart(2, "0");
+        days.push({ value, label: String(day) });
+      }
+      issueDayFilter.setOptions(days);
+
+      const years = [...new Set(records.map((record) => issueDateParts(record.issue_date)?.year).filter(Boolean))]
+        .sort((left, right) => right.localeCompare(left));
+      issueYearFilter.setOptions(years.map((year) => ({ value: year, label: year })));
+      const disabled = years.length === 0;
+      issueMonthFilter.setDisabled(disabled);
+      issueDayFilter.setDisabled(disabled);
+      issueYearFilter.setDisabled(disabled);
+    }
+
+    function matches(record, query) {
+      if (!query) return true;
+      const haystack = [
+        record.permit_number, record.address, record.permit_type, record.permit_subtype,
+        record.status, record.contractor, record.owner, record.subdivision,
+        record.parcel_number, record._reportTitle
+      ].filter(Boolean).join(" ").toLocaleLowerCase();
+      return haystack.includes(query);
+    }
+
+    function filteredRecords() {
+      const query = searchInput.value.trim().toLocaleLowerCase();
+      const selectedReports = reportFilter.getValues();
+      const selectedPermitTypes = permitTypeFilter.getValues();
+      const selectedMonths = issueMonthFilter.getValues();
+      const selectedDays = issueDayFilter.getValues();
+      const selectedYears = issueYearFilter.getValues();
+      const selectedValuations = valuationFilter.getValues();
+      return records.filter((record) => {
+        const issueDate = issueDateParts(record.issue_date);
+        return matches(record, query)
+          && (!selectedReports.size || selectedReports.has(record._reportTitle))
+          && (!selectedPermitTypes.size || selectedPermitTypes.has(record.permit_type))
+          && (!selectedMonths.size || selectedMonths.has(issueDate?.month))
+          && (!selectedDays.size || selectedDays.has(issueDate?.day))
+          && (!selectedYears.size || selectedYears.has(issueDate?.year))
+          && (!selectedValuations.size || selectedValuations.has(valuationBand(record.valuation).id));
+      });
+    }
+
+    function sortRecords(filtered) {
+      if (!sortField) return filtered;
+      return [...filtered].sort((left, right) => {
+        const leftValue = sortField === "issue_date" ? left.issue_date : left.valuation;
+        const rightValue = sortField === "issue_date" ? right.issue_date : right.valuation;
+        const leftMissing = leftValue === null || leftValue === undefined || leftValue === "";
+        const rightMissing = rightValue === null || rightValue === undefined || rightValue === "";
+        if (leftMissing || rightMissing) return leftMissing === rightMissing ? 0 : leftMissing ? 1 : -1;
+        const comparison = sortField === "issue_date"
+          ? String(leftValue).localeCompare(String(rightValue))
+          : numericValue(leftValue) - numericValue(rightValue);
+        return sortDirection === "ascending" ? comparison : -comparison;
+      });
+    }
+
+    function updateSortControls() {
+      document.querySelectorAll(".sort-button").forEach((button) => {
+        const field = button.dataset.sort;
+        const sorted = field === sortField;
+        const heading = button.closest("th");
+        const indicator = button.querySelector(".sort-indicator");
+        const label = button.querySelector("span").textContent;
+        heading.setAttribute("aria-sort", sorted ? sortDirection : "none");
+        indicator.textContent = sorted ? (sortDirection === "ascending" ? "↑" : "↓") : "↕";
+        button.setAttribute("aria-label", sorted
+          ? `${label}, sorted ${sortDirection}. Click to sort ${sortDirection === "ascending" ? "descending" : "ascending"}.`
+          : `Sort by ${label} ascending.`);
+      });
+    }
+
+    function valuationBand(value) {
+      if (value === null || value === undefined || value === "" || numericValue(value) <= 0) {
+        return valuationBands[valuationBands.length - 1];
+      }
+      return valuationBands.find((band) => band.min !== undefined && numericValue(value) >= band.min && numericValue(value) <= band.max)
+        || valuationBands[valuationBands.length - 1];
+    }
+
+    function renderValuationLegend() {
+      valuationLegend.replaceChildren();
+      const selected = valuationFilter.getValues();
+      valuationBands.forEach((band) => {
+        const item = document.createElement("li");
+        item.className = "legend-item";
+        const toggle = document.createElement("button");
+        toggle.className = "legend-toggle";
+        toggle.type = "button";
+        toggle.setAttribute("aria-pressed", String(selected.has(band.id)));
+        toggle.setAttribute("aria-label", `Toggle ${band.label} valuation filter`);
+        const swatch = document.createElement("span");
+        swatch.className = "legend-swatch";
+        swatch.style.backgroundColor = band.color;
+        const label = document.createElement("span");
+        label.textContent = band.label;
+        toggle.append(swatch, label);
+        toggle.addEventListener("click", () => {
+          const checkbox = document.querySelector(`#valuation-filter input[value="${band.id}"]`);
+          if (!checkbox) return;
+          checkbox.checked = !checkbox.checked;
+          checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        item.append(toggle);
+        valuationLegend.append(item);
+      });
+    }
+
+    function initializeMap() {
+      if (permitMap) return true;
+      if (!window.L) {
+        mapStatus.textContent = "The map could not load. Check the internet connection and try again.";
+        return false;
+      }
+      permitMap = L.map("permit-map", { scrollWheelZoom: false }).setView(mapCenter, 13);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(permitMap);
+      markerLayer = L.layerGroup().addTo(permitMap);
+      return true;
+    }
+
+    function lookupParcel(parcelId) {
+      const key = String(parcelId || "").trim().toUpperCase();
+      if (!/^\d{2}-\d{5}-\d{3}$/.test(key)) return Promise.resolve(null);
+      if (Object.prototype.hasOwnProperty.call(parcelCache, key)) return Promise.resolve(parcelCache[key]);
+      if (parcelRequests.has(key)) return parcelRequests.get(key);
+
+      const request = parcelQueryQueue.then(async () => {
+        const wait = Math.max(0, parcelQueryDelayMs - (Date.now() - lastParcelQueryAt));
+        if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+        lastParcelQueryAt = Date.now();
+
+        const url = new URL("https://gis.bentoncountyar.gov/arcgis/rest/services/Assessor/ParcelMobile/MapServer/1/query");
+        url.searchParams.set("where", `PARCELID='${key}'`);
+        url.searchParams.set("outFields", "PARCELID,PH_ADD,OW_NAME");
+        url.searchParams.set("returnGeometry", "true");
+        url.searchParams.set("outSR", "4326");
+        url.searchParams.set("f", "json");
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Parcel lookup failed with HTTP ${response.status}`);
+        const result = await response.json();
+        if (result.error) throw new Error(result.error.message || "Parcel lookup failed");
+        const feature = result.features?.find((item) => String(item.attributes?.PARCELID || "").toUpperCase() === key);
+        const rings = feature?.geometry?.rings;
+        let center = null;
+        if (Array.isArray(rings) && rings.length) {
+          const polygon = L.polygon(rings.map((ring) => ring.map(([longitude, latitude]) => [latitude, longitude])));
+          const point = polygon.getBounds().getCenter();
+          center = { latitude: point.lat, longitude: point.lng };
+        }
+        parcelCache[key] = center;
+        try {
+          localStorage.setItem(parcelCacheKey, JSON.stringify(parcelCache));
+        } catch {
+          // Keep this map session usable when browser storage is unavailable.
+        }
+        return center;
+      });
+      parcelQueryQueue = request.catch(() => null);
+      parcelRequests.set(key, request);
+      request.then(() => parcelRequests.delete(key), () => parcelRequests.delete(key));
+      return request;
+    }
+
+    function markerTooltip(address, totalValuation) {
+      const tooltip = document.createElement("div");
+      const location = document.createElement("strong");
+      location.className = "permit-hover-address";
+      location.textContent = address;
+      const valuation = document.createElement("span");
+      valuation.className = "permit-hover-valuation";
+      valuation.textContent = `Valuation: ${formatMoney(totalValuation)}`;
+      tooltip.append(location, valuation);
+      return tooltip;
+    }
+
+    async function renderMap(filtered) {
+      const renderId = ++mapRenderId;
+      if (!initializeMap()) return;
+      markerLayer.clearLayers();
+      if (!filtered.length) {
+        mapStatus.textContent = "No permits match the current filters.";
+        return;
+      }
+
+      const parcelGroups = new Map();
+      let missingParcelNumbers = 0;
+      filtered.forEach((record) => {
+        const parcelId = String(record.parcel_number || "").trim().toUpperCase();
+        if (!/^\d{2}-\d{5}-\d{3}$/.test(parcelId)) {
+          missingParcelNumbers += 1;
+          return;
+        }
+        const group = parcelGroups.get(parcelId) || [];
+        group.push(record);
+        parcelGroups.set(parcelId, group);
+      });
+      if (!parcelGroups.size) {
+        mapStatus.textContent = `No valid parcel numbers are available to map${missingParcelNumbers ? `; ${missingParcelNumbers} permits lack a parcel number` : ""}.`;
+        return;
+      }
+
+      const markers = [];
+      let notLocated = 0;
+      let completed = 0;
+      const entries = [...parcelGroups.entries()];
+      for (const [parcelId, permits] of entries) {
+        if (renderId !== mapRenderId) return;
+        mapStatus.textContent = `Looking up parcel ${completed + 1} of ${entries.length}...`;
+        try {
+          const coordinates = await lookupParcel(parcelId);
+          if (renderId !== mapRenderId) return;
+          if (coordinates) {
+            const totalValuation = permits.reduce((total, record) => total + numericValue(record.valuation), 0);
+            const band = valuationBand(totalValuation);
+            const marker = L.circleMarker([coordinates.latitude, coordinates.longitude], {
+              radius: 7,
+              color: "#174432",
+              weight: 2,
+              fillColor: band.color,
+              fillOpacity: 0.9
+            });
+            const address = permits[0].address || `Parcel ${parcelId}`;
+            marker.bindTooltip(markerTooltip(address, totalValuation), {
+              direction: "top",
+              sticky: true,
+              opacity: 1,
+              className: "permit-hover-tooltip"
+            });
+            marker.addTo(markerLayer);
+            markers.push(marker);
+          } else {
+            notLocated += 1;
+          }
+        } catch {
+          notLocated += 1;
+        }
+        completed += 1;
+      }
+
+      if (renderId !== mapRenderId) return;
+      if (markers.length) {
+        permitMap.fitBounds(L.featureGroup(markers).getBounds().pad(0.12), { maxZoom: 16 });
+      } else {
+        permitMap.setView(mapCenter, 13);
+      }
+      mapStatus.textContent = `${markers.length} of ${entries.length} parcels mapped${notLocated ? `; ${notLocated} not found` : ""}${missingParcelNumbers ? `; ${missingParcelNumbers} permits lack a parcel number` : ""}.`;
+    }
+
+    function switchView(view) {
+      currentView = view;
+      const showMap = view === "map";
+      listViewTab.setAttribute("aria-selected", String(!showMap));
+      listViewTab.tabIndex = showMap ? -1 : 0;
+      mapViewTab.setAttribute("aria-selected", String(showMap));
+      mapViewTab.tabIndex = showMap ? 0 : -1;
+      tableFrame.hidden = showMap;
+      tableFooter.hidden = showMap;
+      mapPanel.hidden = !showMap;
+      if (showMap) {
+        if (initializeMap()) {
+          permitMap.invalidateSize();
+          renderMap(filteredRecords());
+        }
+      } else {
+        mapRenderId += 1;
+        render();
+      }
+    }
+
+    function addCell(row, value, className) {
+      const cell = document.createElement("td");
+      if (className) cell.className = className;
+      cell.textContent = displayValue(value);
+      row.append(cell);
+      return cell;
+    }
+
+    function render() {
+      const filtered = filteredRecords();
+      renderValuationLegend();
+      const shown = sortRecords(filtered).slice(0, visibleLimit);
+      permitRows.replaceChildren();
+      shown.forEach((record) => {
+        const row = document.createElement("tr");
+        const permitCell = row.insertCell();
+        const permitButton = document.createElement("button");
+        permitButton.className = "permit-link";
+        permitButton.type = "button";
+        permitButton.textContent = displayValue(record.permit_number);
+        permitButton.addEventListener("click", () => showDetails(record));
+        permitCell.append(permitButton);
+
+        const addressCell = addCell(row, record.address, "address");
+        if (record.subdivision) {
+          const subdivision = document.createElement("span");
+          subdivision.className = "subtext";
+          subdivision.textContent = record.subdivision;
+          addressCell.append(subdivision);
+        }
+        addCell(row, [record.permit_type, record.permit_subtype].filter(Boolean).join(" / "), "type-cell");
+        const statusCell = row.insertCell();
+        const status = document.createElement("span");
+        status.className = `status${record.status ? "" : " status-empty"}`;
+        status.textContent = displayValue(record.status);
+        statusCell.append(status);
+        addCell(row, formatDate(record.issue_date || record.applied_date));
+        addCell(row, formatMoney(record.valuation), "money");
+        addCell(row, record._reportTitle);
+        permitRows.append(row);
+      });
+
+      permitTable.hidden = shown.length === 0;
+      emptyState.hidden = shown.length !== 0;
+      emptyState.querySelector("strong").textContent = records.length ? "No matching permits" : "No permit records";
+      emptyState.querySelector("p").textContent = records.length ? "Adjust the search or report filter." : "The selected dataset contains no permit records.";
+      document.querySelector("#result-count").textContent = `${filtered.length.toLocaleString()} ${filtered.length === 1 ? "record" : "records"}`;
+      document.querySelector("#table-summary").textContent = filtered.length
+        ? `Showing ${shown.length.toLocaleString()} of ${filtered.length.toLocaleString()} permits`
+        : "No records to display";
+      const moreButton = document.querySelector("#show-more");
+      moreButton.hidden = shown.length >= filtered.length;
+      moreButton.textContent = `Show ${Math.min(pageSize, filtered.length - shown.length).toLocaleString()} more`;
+      if (currentView === "map") renderMap(filtered);
+    }
+
+    function appendDetail(parent, label, value) {
+      const item = document.createElement("div");
+      item.className = "detail-item";
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const description = document.createElement("dd");
+      description.textContent = displayValue(value);
+      item.append(term, description);
+      parent.append(item);
+    }
+
+    function appendContactsSection(parent, contacts) {
+      if (!contacts || typeof contacts !== "object" || !Object.keys(contacts).length) return;
+      const section = document.createElement("section");
+      section.className = "detail-section";
+      const heading = document.createElement("h3");
+      heading.textContent = "Contacts";
+      const grid = document.createElement("dl");
+      grid.className = "detail-grid";
+      Object.entries(contacts).forEach(([type, name]) => appendDetail(grid, type, name));
+      section.append(heading, grid);
+      parent.append(section);
+    }
+
+    function appendJsonDisclosure(parent, title, value) {
+      if (!value || (typeof value === "object" && !Object.keys(value).length)) return;
+      const section = document.createElement("section");
+      section.className = "detail-section";
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      const toggle = document.createElement("button");
+      toggle.className = "json-toggle";
+      toggle.type = "button";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.textContent = "Show JSON";
+      const pre = document.createElement("pre");
+      pre.hidden = true;
+      pre.textContent = JSON.stringify(value, null, 2);
+      toggle.addEventListener("click", () => {
+        pre.hidden = !pre.hidden;
+        toggle.setAttribute("aria-expanded", String(!pre.hidden));
+        toggle.textContent = pre.hidden ? "Show JSON" : "Hide JSON";
+      });
+      section.append(heading, toggle, pre);
+      parent.append(section);
+    }
+
+    function showDetails(record) {
+      document.querySelector("#detail-title").textContent = displayValue(record.permit_number);
+      document.querySelector("#detail-subtitle").textContent = `${displayValue(record.address)} · ${record._reportTitle}`;
+      const body = document.querySelector("#detail-body");
+      body.replaceChildren();
+      const grid = document.createElement("dl");
+      grid.className = "detail-grid";
+      const fields = [
+        ["Permit type", [record.permit_type, record.permit_subtype].filter(Boolean).join(" / ")],
+        ["Status", record.status],
+        ["Applied date", formatDate(record.applied_date)],
+        ["Issue date", formatDate(record.issue_date)],
+        ["Valuation", formatMoney(record.valuation)],
+        ["Total fees", formatMoney(record.total_fees)],
+        ["Total paid", formatMoney(record.total_paid)],
+        ["Square feet", record.square_feet],
+        ["Parcel number", record.parcel_number],
+        ["Subdivision", record.subdivision],
+        ["Contractor", record.contractor],
+        ["Owner", record.owner],
+        ["Page", record.page_number],
+        ["Source row", record.row_number]
+      ];
+      fields.forEach(([label, value]) => appendDetail(grid, label, value));
+      body.append(grid);
+      appendContactsSection(body, record.contacts);
+      appendJsonDisclosure(body, "Source values", record.raw);
+      if (record._reportUrl) {
+        const link = document.createElement("a");
+        link.className = "report-source";
+        link.href = record._reportUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "Open source report";
+        body.append(link);
+      }
+      dialog.showModal();
+    }
+
+    fileInput.addEventListener("change", async (event) => {
+      const [file] = event.target.files;
+      if (!file) return;
+      try {
+        setDataset(JSON.parse(await file.text()), file.name);
+      } catch (error) {
+        notice.textContent = `Could not load JSON: ${error.message}`;
+      }
+      fileInput.value = "";
+    });
+
+    searchInput.addEventListener("input", () => { visibleLimit = pageSize; render(); });
+    document.querySelectorAll(".sort-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const field = button.dataset.sort;
+        if (field === sortField) {
+          sortDirection = sortDirection === "ascending" ? "descending" : "ascending";
+        } else {
+          sortField = field;
+          sortDirection = "ascending";
+        }
+        updateSortControls();
+        render();
+      });
+    });
+    listViewTab.addEventListener("click", () => switchView("list"));
+    mapViewTab.addEventListener("click", () => switchView("map"));
+    document.querySelector("#show-more").addEventListener("click", () => { visibleLimit += pageSize; render(); });
+    document.querySelector("#close-dialog").addEventListener("click", () => dialog.close());
+    dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+
+    document.addEventListener("dragover", (event) => event.preventDefault());
+    document.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      const file = [...event.dataTransfer.files].find((candidate) => candidate.name.toLowerCase().endsWith(".json"));
+      if (!file) return;
+      try {
+        setDataset(JSON.parse(await file.text()), file.name);
+      } catch (error) {
+        notice.textContent = `Could not load JSON: ${error.message}`;
+      }
+    });
+  </script>
+</body>
+</html>

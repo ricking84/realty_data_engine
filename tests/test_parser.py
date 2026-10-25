@@ -30,7 +30,8 @@ def test_parse_pdf_extracts_permits(permit_pdf):
     first = records[0]
     assert first.permit_number == "BP-2024-0001"
     assert first.issue_date == date(2024, 1, 5)
-    assert first.address == "123 Main Street"
+    assert first.address == "123 Main Street, Bentonville, AR 72712"
+    assert first.raw["Address"] == "123 Main Street"
     assert first.permit_type == "New Residential"
     assert first.contractor == "ABC Builders"
     assert first.valuation == Decimal("350000.00")
@@ -57,7 +58,7 @@ def test_rows_before_any_header_are_ignored():
 
 
 def test_parse_bentonville_report_pdf():
-    content = Path(__file__).parents[1] / "September-2026.pdf"
+    content = Path(__file__).parents[1] / "docs" / "September-2026.pdf"
     records = parse_pdf(content.read_bytes())
 
     assert len(records) == 114
@@ -67,7 +68,7 @@ def test_parse_bentonville_report_pdf():
     assert first.issue_date == date(2026, 9, 15)
     assert first.permit_type == "ALTERATION REMODEL COM"
     assert first.permit_subtype == "INTERIOR REMODEL"
-    assert first.address == "2700 SE S ST 200"
+    assert first.address == "2700 SE S ST 200, Bentonville, AR 72712"
     assert first.parcel_number == "01-08559-004"
     assert first.status == "ISSUED"
     assert first.subdivision == "BENTONVILLE IND PARK SOUTH (BIDC)"

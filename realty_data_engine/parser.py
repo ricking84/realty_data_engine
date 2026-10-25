@@ -128,6 +128,15 @@ def parse_int(value: str) -> int | None:
     return int(number) if number is not None else None
 
 
+def _add_bentonville_location(records: list[PermitRecord]) -> list[PermitRecord]:
+    suffix = ", Bentonville, AR 72712"
+    already_local = re.compile(r"\bBentonville\b.*\bAR\b.*\b72712\b$", re.IGNORECASE)
+    for record in records:
+        if record.address and not already_local.search(record.address):
+            record.address = f"{record.address}{suffix}"
+    return records
+
+
 def _is_header_row(row: list[str]) -> bool:
     # Data rows always carry permit numbers, dates or amounts; header rows never contain digits.
     if any(char.isdigit() for cell in row for char in cell):
@@ -351,7 +360,7 @@ def parse_pdf(content: bytes) -> list[PermitRecord]:
     with pdfplumber.open(io.BytesIO(content)) as pdf:
         records = _parse_report_pages(pdf)
         if records:
-            return records
+            return _add_bentonville_location(records)
 
         tables: list[tuple[int, list[list[object]]]] = []
         for page_number, page in enumerate(pdf.pages, start=1):
@@ -360,7 +369,7 @@ def parse_pdf(content: bytes) -> list[PermitRecord]:
                 # Fall back to whitespace-aligned text detection for PDFs without ruling lines.
                 page_tables = page.extract_tables({"vertical_strategy": "text", "horizontal_strategy": "text"})
             tables.extend((page_number, table) for table in page_tables)
-    records = records_from_tables(tables)
+    records = _add_bentonville_location(records_from_tables(tables))
     if not records:
         logger.warning("No permit rows could be extracted from PDF")
     return records
