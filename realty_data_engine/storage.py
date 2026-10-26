@@ -7,11 +7,13 @@ import os
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 
+from .config import load_settings
 from .parser import PermitRecord
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DRIVER = "ODBC Driver 18 for SQL Server"
+DEFAULT_CONNECTION_TIMEOUT = "120"
 
 SCHEMA_STATEMENTS = (
     """
@@ -132,6 +134,17 @@ SCHEMA_STATEMENTS = (
         ON dbo.building_permits (permit_number)
         WHERE permit_number IS NOT NULL AND permit_number <> N'';
     """,
+    """
+    IF OBJECT_ID(N'dbo.building_parcel_locations', N'U') IS NULL
+    CREATE TABLE dbo.building_parcel_locations (
+        parcel_number NVARCHAR(100) NOT NULL PRIMARY KEY,
+        latitude DECIMAL(10, 7) NULL,
+        longitude DECIMAL(10, 7) NULL,
+        matched_address NVARCHAR(500) NULL,
+        lookup_status NVARCHAR(20) NOT NULL,
+        checked_at DATETIME2 NOT NULL
+    );
+    """,
 )
 
 _INSERT_PERMIT_SQL = """
@@ -175,7 +188,7 @@ def build_connection_string(env: Mapping[str, str] | None = None) -> str:
     from ``AZURE_SQL_SERVER``, ``AZURE_SQL_DATABASE`` and either ``AZURE_SQL_USERNAME`` /
     ``AZURE_SQL_PASSWORD`` or ``AZURE_SQL_AUTHENTICATION`` (e.g. ``ActiveDirectoryMsi``).
     """
-    env = os.environ if env is None else env
+    env = load_settings(env)
     if env.get("AZURE_SQL_CONNECTION_STRING"):
         return env["AZURE_SQL_CONNECTION_STRING"]
 
@@ -200,7 +213,11 @@ def build_connection_string(env: Mapping[str, str] | None = None) -> str:
     if env.get("AZURE_SQL_USERNAME"):
         parts["Uid"] = _quote_odbc_value(env["AZURE_SQL_USERNAME"])
         parts["Pwd"] = _quote_odbc_value(env.get("AZURE_SQL_PASSWORD", ""))
-    parts.update({"Encrypt": "yes", "TrustServerCertificate": "no", "Connection Timeout": "30"})
+    parts.update({
+        "Encrypt": "yes",
+        "TrustServerCertificate": "no",
+        "Connection Timeout": env.get("AZURE_SQL_CONNECTION_TIMEOUT", DEFAULT_CONNECTION_TIMEOUT),
+    })
     return ";".join(f"{key}={value}" for key, value in parts.items()) + ";"
 
 
@@ -229,6 +246,65 @@ class AzureSqlStore:
         )
         row = cursor.fetchone()
         return (int(row[0]), str(row[1])) if row else None
+
+    def get_unlocated_parcel_numbers(self, force: bool = False) -> list[str]:
+        cursor = self.connection.cursor()
+        if force:
+            cursor.execute(
+                "SELECT DISTINCT parcel_number FROM dbo.building_permits "
+                "WHERE parcel_number IS NOT NULL AND parcel_number <> N'' ORDER BY parcel_number"
+            )
+        else:
+            cursor.execute(
+                "SELECT DISTINCT permits.parcel_number FROM dbo.building_permits AS permits "
+                "LEFT JOIN dbo.building_parcel_locations AS locations "
+                "ON locations.parcel_number = permits.parcel_number "
+                "WHERE permits.parcel_number IS NOT NULL AND permits.parcel_number <> N'' "
+                "AND locations.parcel_number IS NULL ORDER BY permits.parcel_number"
+            )
+        return [str(row[0]) for row in cursor.fetchall()]
+
+    def save_parcel_locations(self, locations: Mapping[str, object], batch_size: int = 100) -> None:
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        items = list(locations.items())
+        if not items:
+            return
+
+        checked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        cursor = self.connection.cursor()
+        try:
+            for start in range(0, len(items), batch_size):
+                batch = items[start:start + batch_size]
+                values_sql = ", ".join("(?, ?, ?, ?, ?, ?)" for _ in batch)
+                parameters = []
+                for parcel_number, location in batch:
+                    parameters.extend((
+                        parcel_number,
+                        location.latitude,
+                        location.longitude,
+                        location.matched_address,
+                        location.status,
+                        checked_at,
+                    ))
+                cursor.execute(
+                    "MERGE dbo.building_parcel_locations WITH (HOLDLOCK) AS target "
+                    f"USING (VALUES {values_sql}) AS source "
+                    "(parcel_number, latitude, longitude, matched_address, lookup_status, checked_at) "
+                    "ON target.parcel_number = source.parcel_number "
+                    "WHEN MATCHED THEN UPDATE SET latitude = source.latitude, longitude = source.longitude, "
+                    "matched_address = source.matched_address, lookup_status = source.lookup_status, "
+                    "checked_at = source.checked_at "
+                    "WHEN NOT MATCHED THEN INSERT "
+                    "(parcel_number, latitude, longitude, matched_address, lookup_status, checked_at) "
+                    "VALUES (source.parcel_number, source.latitude, source.longitude, source.matched_address, "
+                    "source.lookup_status, source.checked_at);",
+                    *parameters,
+                )
+                self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
 
     def save_report(
         self,

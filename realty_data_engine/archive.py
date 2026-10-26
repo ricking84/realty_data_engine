@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import os
+from collections.abc import Mapping
+
+from .config import load_settings
 
 
 DEFAULT_CONTAINER = "permit-reports"
@@ -13,8 +15,8 @@ class BlobPdfArchive:
         self.container_client = container_client
 
     @classmethod
-    def from_environment(cls, env: dict[str, str] | None = None) -> BlobPdfArchive:
-        env = os.environ if env is None else env
+    def from_environment(cls, env: Mapping[str, str] | None = None) -> BlobPdfArchive:
+        env = load_settings(env)
         account_url = env.get("AZURE_STORAGE_ACCOUNT_URL")
         if not account_url:
             raise ValueError("Set AZURE_STORAGE_ACCOUNT_URL to enable PDF archiving")

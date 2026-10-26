@@ -54,7 +54,11 @@ pip install -r requirements.txt
 ```
 
 Writing to Azure SQL requires the [Microsoft ODBC Driver 18 for SQL Server](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server).
-Configure the connection with environment variables (see `.env.example`):
+Configure the connection with environment variables (see `.env.example`) or the local-only
+`docs/azure-creds.json` file. Environment variables override JSON values. The JSON file is ignored
+by Git and can hold local SQL and Blob settings; its SQL password is plaintext, so use it only on
+your development machine and never commit or share it. For production, use managed identity and
+secretless configuration instead.
 
 | Variable | Description |
 | --- | --- |
@@ -127,7 +131,15 @@ App can start a hosted job.
 
 ## Browser preview
 
-Open `preview.html` in a browser, then choose the `permits.json` file created by the dry-run command above. The preview supports searching and filtering reports, and selecting a permit opens its normalized fields, contacts and raw source values. The **Map** view looks up parcel numbers in Benton County's public GIS parcel layer and plots one marker per unique parcel over OpenStreetMap tiles. An internet connection is required; parcel centers are cached in the browser. Parcels without a valid GIS match are reported as not found rather than placed using a fuzzy address match. Benton County describes its GIS data as informational and as-is, and states that it is intended for non-commercial use; confirm the county's terms before using it commercially or for authoritative decisions.
+Open `preview.html` in a browser, then choose the `permits.json` file created by the dry-run command above. The preview supports searching and filtering reports, and selecting a permit opens its normalized fields, contacts and raw source values. The **Map** view plots one marker per unique parcel using locations cached in `dbo.building_parcel_locations`; opening the map does not query the county GIS service. Run `python -m realty_data_engine --refresh-parcel-locations` to look up missing parcel numbers in Benton County's public GIS parcel layer and save the results in SQL. Unmatched parcel IDs are cached with a not-found status rather than placed using a fuzzy address match. An internet connection is required for the GIS refresh and OpenStreetMap tiles. Benton County describes its GIS data as informational and as-is, and states that it is intended for non-commercial use; confirm the county's terms before using it commercially or for authoritative decisions.
+
+To view the live Azure SQL dataset locally instead of importing JSON, set the SQL connection environment variables and start the loopback-only read API:
+
+```powershell
+python -m realty_data_engine --serve
+```
+
+Open `http://127.0.0.1:8765`, then choose **Load from database**. The browser never receives SQL credentials; the local Python process performs read-only queries and returns the dataset. Keep the server bound to `127.0.0.1`; this preview API isn't intended for public hosting.
 
 ## Database schema
 

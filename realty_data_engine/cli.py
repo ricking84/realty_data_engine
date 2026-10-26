@@ -103,7 +103,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force", action="store_true", help="Replace stored records even when the PDF is unchanged")
     parser.add_argument("--limit", type=int, help="Only process the first N reports")
     parser.add_argument("--ensure-schema", action="store_true", help="Create or migrate the database schema, then exit")
+    parser.add_argument("--refresh-parcel-locations", action="store_true", help="Resolve missing parcel coordinates and cache them in SQL")
     parser.add_argument("--skip-blob-archive", action="store_true", help="Skip PDF archival (local development only)")
+    parser.add_argument("--serve", action="store_true", help="Serve the local browser preview with a read-only SQL API")
+    parser.add_argument("--port", type=int, default=8765, help="Local preview server port (default: 8765)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args(argv)
     if args.year_from is not None and args.year_to is not None and args.year_from > args.year_to:
@@ -113,6 +116,16 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+    if args.serve:
+        from .web import serve
+
+        try:
+            serve(args.port)
+        except OSError as error:
+            logger.error("Could not start local preview server: %s", error)
+            return 2
+        return 0
 
     if args.dry_run:
         summary = run(
@@ -137,6 +150,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.ensure_schema:
             store.ensure_schema()
             logger.info("Database schema is ready")
+            return 0
+        if args.refresh_parcel_locations:
+            from .geocoder import lookup_parcel_locations
+
+            parcel_numbers = store.get_unlocated_parcel_numbers(force=args.force)
+            if not parcel_numbers:
+                logger.info("All permit parcel numbers already have cached locations")
+                return 0
+            locations = lookup_parcel_locations(parcel_numbers)
+            store.save_parcel_locations(locations)
+            located = sum(location.status == "located" for location in locations.values())
+            logger.info(
+                "Parcel location refresh complete: %d checked, %d located, %d not located",
+                len(locations), located, len(locations) - located,
+            )
             return 0
         if args.skip_blob_archive:
             archive = None

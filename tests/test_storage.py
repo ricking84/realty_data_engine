@@ -2,6 +2,8 @@ import pytest
 
 from realty_data_engine.archive import BlobPdfArchive
 from realty_data_engine import cli, scraper
+from realty_data_engine.config import load_settings
+from realty_data_engine.geocoder import ParcelLocation
 from realty_data_engine.parser import parse_pdf
 from realty_data_engine.storage import SCHEMA_STATEMENTS, AzureSqlStore, build_connection_string
 
@@ -15,7 +17,17 @@ class FakeCursor:
         normalized_sql = " ".join(sql.split())
         self.db.executed.append((normalized_sql, params))
         self._result = None
-        if normalized_sql.startswith("SELECT id, content_sha256"):
+        self._rows = []
+        if normalized_sql.startswith("SELECT DISTINCT permits.parcel_number"):
+            missing = self.db.parcel_numbers - self.db.parcel_locations.keys()
+            self._rows = [(parcel_number,) for parcel_number in sorted(missing)]
+        elif normalized_sql.startswith("SELECT DISTINCT parcel_number FROM dbo.building_permits"):
+            self._rows = [(parcel_number,) for parcel_number in sorted(self.db.parcel_numbers)]
+        elif normalized_sql.startswith("MERGE dbo.building_parcel_locations"):
+            for offset in range(0, len(params), 6):
+                parcel_number, latitude, longitude, address, status, checked_at = params[offset:offset + 6]
+                self.db.parcel_locations[parcel_number] = (latitude, longitude, address, status, checked_at)
+        elif normalized_sql.startswith("SELECT id, content_sha256"):
             self._result = self.db.reports.get(params[0])
         elif normalized_sql.startswith("SELECT id, issue_date FROM dbo.building_permits"):
             permit = next((row for row in self.db.permits if row[3] == params[0]), None)
@@ -55,12 +67,17 @@ class FakeCursor:
     def fetchone(self):
         return self._result
 
+    def fetchall(self):
+        return self._rows
+
 
 class FakeConnection:
     def __init__(self):
         self.reports = {}
         self.permits = []
         self.permit_links = set()
+        self.parcel_numbers = set()
+        self.parcel_locations = {}
         self.next_permit_id = 1
         self.executed = []
         self.commits = 0
@@ -92,7 +109,16 @@ def test_build_connection_string_from_parts():
     ]
     # Values containing ODBC special characters are wrapped in braces with "}" escaped as "}}".
     assert "=" + "{p;w{d}}}" + ";Encrypt=yes;" in conn_str
-    assert conn_str.endswith("TrustServerCertificate=no;Connection Timeout=30;")
+    assert conn_str.endswith("TrustServerCertificate=no;Connection Timeout=120;")
+
+
+def test_build_connection_string_allows_connection_timeout_override():
+    conn_str = build_connection_string({
+        "AZURE_SQL_SERVER": "myserver.database.windows.net",
+        "AZURE_SQL_DATABASE": "realty",
+        "AZURE_SQL_CONNECTION_TIMEOUT": "45",
+    })
+    assert conn_str.endswith("TrustServerCertificate=no;Connection Timeout=45;")
 
 
 def test_build_connection_string_prefers_full_string():
@@ -102,6 +128,24 @@ def test_build_connection_string_prefers_full_string():
 def test_build_connection_string_requires_settings():
     with pytest.raises(ValueError):
         build_connection_string({})
+
+
+def test_load_settings_reads_local_json_and_environment_overrides(tmp_path):
+    config_path = tmp_path / "azure-creds.json"
+    config_path.write_text(
+        '{"azure_sql":{"server":"from-file","database":"permit_data","password":"",'
+        '"connection_timeout":"120"},'
+        '"azure_storage":{"account_url":"https://storage.example","container":"permits"}}',
+        encoding="utf-8",
+    )
+
+    settings = load_settings({"AZURE_SQL_SERVER": "from-env"}, config_path)
+
+    assert settings["AZURE_SQL_SERVER"] == "from-env"
+    assert settings["AZURE_SQL_DATABASE"] == "permit_data"
+    assert settings["AZURE_SQL_CONNECTION_TIMEOUT"] == "120"
+    assert settings["AZURE_STORAGE_ACCOUNT_URL"] == "https://storage.example"
+    assert settings["AZURE_STORAGE_CONTAINER"] == "permits"
 
 
 def test_blob_archive_uses_content_addressed_pdf_path():
@@ -143,6 +187,22 @@ def test_ensure_schema_runs_all_statements():
     AzureSqlStore(conn).ensure_schema()
     assert len(conn.executed) == len(SCHEMA_STATEMENTS)
     assert conn.commits == 1
+
+
+def test_parcel_location_cache_finds_missing_ids_and_saves_batches():
+    conn = FakeConnection()
+    conn.parcel_numbers = {"01-08559-004", "01-02258-000-00134-20-13"}
+    store = AzureSqlStore(conn)
+
+    missing = store.get_unlocated_parcel_numbers()
+    store.save_parcel_locations({
+        parcel_number: ParcelLocation(36.34, -94.19, "2700 SE S ST", "located")
+        for parcel_number in missing
+    }, batch_size=10)
+
+    assert store.get_unlocated_parcel_numbers() == []
+    assert len(conn.parcel_locations) == 2
+    assert conn.parcel_locations["01-08559-004"][3] == "located"
 
 
 def test_save_report_inserts_then_skips_unchanged_then_replaces(permit_pdf):

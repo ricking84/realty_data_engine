@@ -99,6 +99,9 @@
 
     .open-button:hover { background: var(--green); transform: translateY(-1px); }
     .open-button svg { width: 16px; height: 16px; }
+    .open-button.database-button { border-color: var(--line); color: var(--green-dark); background: white; }
+    .open-button.database-button:hover { background: var(--soft-green); }
+    .open-button:disabled { opacity: .65; cursor: progress; transform: none; }
     .file-input { display: none; }
 
     .intro {
@@ -353,6 +356,7 @@
         Open JSON
       </label>
       <input class="file-input" id="dataset-file" type="file" accept=".json,application/json">
+      <button class="open-button database-button" id="load-database" type="button">Load from database</button>
     </header>
 
     <section class="intro" aria-labelledby="page-title">
@@ -457,14 +461,16 @@
     const pageSize = 100;
     const mapCenter = [36.3729, -94.2088];
     const valuationBands = [
-      { id: "1-10000", label: "$1-$10,000", min: 1, max: 10000, color: "#8c332b" },
-      { id: "10001-25000", label: "$10,001-$25,000", min: 10001, max: 25000, color: "#d5913f" },
-      { id: "25001-50000", label: "$25,001-$50,000", min: 25001, max: 50000, color: "#d3b748" },
-      { id: "50001-100000", label: "$50,001-$100,000", min: 50001, max: 100000, color: "#9eb84e" },
-      { id: "100001-250000", label: "$100,001-$250,000", min: 100001, max: 250000, color: "#548a4a" },
-      { id: "250001-500000", label: "$250,001-$500,000", min: 250001, max: 500000, color: "#477d48" },
-      { id: "500001-1000000", label: "$500,001-$1,000,000", min: 500001, max: 1000000, color: "#326f43" },
-      { id: "1000001-plus", label: "$1,000,001+", min: 1000001, max: Infinity, color: "#245f3d" },
+      { id: "1-10000", label: "$1-$10,000", min: 1, max: 10000, color: "#e15759" },
+      { id: "10001-25000", label: "$10,001-$25,000", min: 10001, max: 25000, color: "#f28e2b" },
+      { id: "25001-50000", label: "$25,001-$50,000", min: 25001, max: 50000, color: "#edc948" },
+      { id: "50001-100000", label: "$50,001-$100,000", min: 50001, max: 100000, color: "#59a14f" },
+      { id: "100001-250000", label: "$100,001-$250,000", min: 100001, max: 250000, color: "#4e79a7" },
+      { id: "250001-500000", label: "$250,001-$500,000", min: 250001, max: 500000, color: "#b07aa1" },
+      { id: "500001-1000000", label: "$500,001-$1,000,000", min: 500001, max: 1000000, color: "#9c755f" },
+      { id: "1000001-2000000", label: "$1,000,001-$2,000,000", min: 1000001, max: 2000000, color: "#76b7b2" },
+      { id: "2000001-3000000", label: "$2,000,001-$3,000,000", min: 2000001, max: 3000000, color: "#ff9da7" },
+      { id: "3000001-plus", label: "$3,000,001+", min: 3000001, max: Infinity, color: "#2f4b7c" },
       { id: "no-valuation", label: "No valuation", color: "#68746e" }
     ];
     const parcelCacheKey = "realty-data-engine-parcel-centers-v1";
@@ -635,29 +641,40 @@
     });
 
     function flattenDataset(data) {
-      if (Array.isArray(data)) {
-        return data.map((permit) => ({ permit, report: { title: "Imported dataset" } }));
-      }
-      if (!data || typeof data !== "object" || !Array.isArray(data.reports)) {
-        throw new Error("Expected a dry-run object containing a reports array.");
+      if (!data || !Array.isArray(data.reports)) {
+        throw new Error("Dataset must contain a reports array.");
       }
       return data.reports.flatMap((report) => {
-        if (!Array.isArray(report.permits)) return [];
+        if (!report || !Array.isArray(report.permits)) return [];
         return report.permits.map((permit) => ({ permit, report }));
       });
     }
 
     function setDataset(data, filename) {
       const entries = flattenDataset(data);
-      records = entries.map(({ permit, report }, index) => ({
-        ...permit,
-        _reportTitle: report.title || report.url || `Report ${index + 1}`,
-        _reportUrl: report.url || ""
-      }));
+      const uniqueRecords = new Map();
+      entries.forEach(({ permit, report }, index) => {
+        const reportTitle = report.title || report.url || `Report ${index + 1}`;
+        const key = permit.id !== undefined && permit.id !== null
+          ? `id:${permit.id}`
+          : permit.permit_number ? `permit:${permit.permit_number}` : `row:${index}`;
+        const existing = uniqueRecords.get(key);
+        if (existing) {
+          existing._reportTitles.add(reportTitle);
+          return;
+        }
+        uniqueRecords.set(key, {
+          ...permit,
+          _reportTitle: reportTitle,
+          _reportTitles: new Set([reportTitle]),
+          _reportUrl: report.url || ""
+        });
+      });
+      records = [...uniqueRecords.values()];
       visibleLimit = pageSize;
       document.querySelector("#dataset-name").textContent = filename || "Imported dataset";
       document.querySelector("#permit-total").textContent = records.length.toLocaleString();
-      document.querySelector("#report-total").textContent = new Set(records.map((record) => record._reportTitle)).size.toLocaleString();
+      document.querySelector("#report-total").textContent = new Set(records.flatMap((record) => [...record._reportTitles])).size.toLocaleString();
       const valuation = records.reduce((total, record) => total + numericValue(record.valuation), 0);
       document.querySelector("#valuation-total").textContent = formatMoney(valuation, true);
       populateReportFilter();
@@ -670,7 +687,7 @@
     }
 
     function populateReportFilter() {
-      const titles = [...new Set(records.map((record) => record._reportTitle))];
+      const titles = [...new Set(records.flatMap((record) => [...record._reportTitles]))];
       reportFilter.setOptions(titles.map((title) => ({ value: title, label: title })));
     }
 
@@ -715,12 +732,12 @@
       const haystack = [
         record.permit_number, record.address, record.permit_type, record.permit_subtype,
         record.status, record.contractor, record.owner, record.subdivision,
-        record.parcel_number, record._reportTitle
+        record.parcel_number, ...record._reportTitles
       ].filter(Boolean).join(" ").toLocaleLowerCase();
       return haystack.includes(query);
     }
 
-    function filteredRecords() {
+    function filteredRecords({ includeValuation = true } = {}) {
       const query = searchInput.value.trim().toLocaleLowerCase();
       const selectedReports = reportFilter.getValues();
       const selectedPermitTypes = permitTypeFilter.getValues();
@@ -731,12 +748,12 @@
       return records.filter((record) => {
         const issueDate = issueDateParts(record.issue_date);
         return matches(record, query)
-          && (!selectedReports.size || selectedReports.has(record._reportTitle))
+          && (!selectedReports.size || [...record._reportTitles].some((title) => selectedReports.has(title)))
           && (!selectedPermitTypes.size || selectedPermitTypes.has(record.permit_type))
           && (!selectedMonths.size || selectedMonths.has(issueDate?.month))
           && (!selectedDays.size || selectedDays.has(issueDate?.day))
           && (!selectedYears.size || selectedYears.has(issueDate?.year))
-          && (!selectedValuations.size || selectedValuations.has(valuationBand(record.valuation).id));
+          && (!includeValuation || !selectedValuations.size || selectedValuations.has(valuationBand(record.valuation).id));
       });
     }
 
@@ -821,49 +838,6 @@
       return true;
     }
 
-    function lookupParcel(parcelId) {
-      const key = String(parcelId || "").trim().toUpperCase();
-      if (!/^\d{2}-\d{5}-\d{3}$/.test(key)) return Promise.resolve(null);
-      if (Object.prototype.hasOwnProperty.call(parcelCache, key)) return Promise.resolve(parcelCache[key]);
-      if (parcelRequests.has(key)) return parcelRequests.get(key);
-
-      const request = parcelQueryQueue.then(async () => {
-        const wait = Math.max(0, parcelQueryDelayMs - (Date.now() - lastParcelQueryAt));
-        if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
-        lastParcelQueryAt = Date.now();
-
-        const url = new URL("https://gis.bentoncountyar.gov/arcgis/rest/services/Assessor/ParcelMobile/MapServer/1/query");
-        url.searchParams.set("where", `PARCELID='${key}'`);
-        url.searchParams.set("outFields", "PARCELID,PH_ADD,OW_NAME");
-        url.searchParams.set("returnGeometry", "true");
-        url.searchParams.set("outSR", "4326");
-        url.searchParams.set("f", "json");
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Parcel lookup failed with HTTP ${response.status}`);
-        const result = await response.json();
-        if (result.error) throw new Error(result.error.message || "Parcel lookup failed");
-        const feature = result.features?.find((item) => String(item.attributes?.PARCELID || "").toUpperCase() === key);
-        const rings = feature?.geometry?.rings;
-        let center = null;
-        if (Array.isArray(rings) && rings.length) {
-          const polygon = L.polygon(rings.map((ring) => ring.map(([longitude, latitude]) => [latitude, longitude])));
-          const point = polygon.getBounds().getCenter();
-          center = { latitude: point.lat, longitude: point.lng };
-        }
-        parcelCache[key] = center;
-        try {
-          localStorage.setItem(parcelCacheKey, JSON.stringify(parcelCache));
-        } catch {
-          // Keep this map session usable when browser storage is unavailable.
-        }
-        return center;
-      });
-      parcelQueryQueue = request.catch(() => null);
-      parcelRequests.set(key, request);
-      request.then(() => parcelRequests.delete(key), () => parcelRequests.delete(key));
-      return request;
-    }
-
     function markerTooltip(address, totalValuation) {
       const tooltip = document.createElement("div");
       const location = document.createElement("strong");
@@ -876,8 +850,8 @@
       return tooltip;
     }
 
-    async function renderMap(filtered) {
-      const renderId = ++mapRenderId;
+    function renderMap(filtered) {
+      mapRenderId += 1;
       if (!initializeMap()) return;
       markerLayer.clearLayers();
       if (!filtered.length) {
@@ -904,49 +878,53 @@
 
       const markers = [];
       let notLocated = 0;
-      let completed = 0;
-      const entries = [...parcelGroups.entries()];
-      for (const [parcelId, permits] of entries) {
-        if (renderId !== mapRenderId) return;
-        mapStatus.textContent = `Looking up parcel ${completed + 1} of ${entries.length}...`;
-        try {
-          const coordinates = await lookupParcel(parcelId);
-          if (renderId !== mapRenderId) return;
-          if (coordinates) {
-            const totalValuation = permits.reduce((total, record) => total + numericValue(record.valuation), 0);
-            const band = valuationBand(totalValuation);
-            const marker = L.circleMarker([coordinates.latitude, coordinates.longitude], {
-              radius: 7,
-              color: "#174432",
-              weight: 2,
-              fillColor: band.color,
-              fillOpacity: 0.9
-            });
-            const address = permits[0].address || `Parcel ${parcelId}`;
-            marker.bindTooltip(markerTooltip(address, totalValuation), {
-              direction: "top",
-              sticky: true,
-              opacity: 1,
-              className: "permit-hover-tooltip"
-            });
-            marker.addTo(markerLayer);
-            markers.push(marker);
-          } else {
-            notLocated += 1;
-          }
-        } catch {
-          notLocated += 1;
-        }
-        completed += 1;
+      const selectedValuations = valuationFilter.getValues();
+      const entries = [...parcelGroups.entries()].map(([parcelId, permits]) => {
+        const totalValuation = permits.reduce((total, record) => total + numericValue(record.valuation), 0);
+        return { parcelId, permits, totalValuation, band: valuationBand(totalValuation) };
+      }).filter(({ band }) => !selectedValuations.size || selectedValuations.has(band.id));
+      if (!entries.length) {
+        mapStatus.textContent = "No parcels match the current filters.";
+        permitMap.setView(mapCenter, 13);
+        return;
       }
 
-      if (renderId !== mapRenderId) return;
+      for (const { parcelId, permits, totalValuation, band } of entries) {
+        const locatedPermit = permits.find((record) => (
+          record.latitude !== null && record.latitude !== undefined
+          && record.longitude !== null && record.longitude !== undefined
+          && Number.isFinite(Number(record.latitude))
+          && Number.isFinite(Number(record.longitude))
+        ));
+        if (!locatedPermit) {
+          notLocated += 1;
+          continue;
+        }
+
+        const marker = L.circleMarker([Number(locatedPermit.latitude), Number(locatedPermit.longitude)], {
+          radius: 7,
+          color: "#174432",
+          weight: 2,
+          fillColor: band.color,
+          fillOpacity: 0.9
+        });
+        const address = permits[0].address || `Parcel ${parcelId}`;
+        marker.bindTooltip(markerTooltip(address, totalValuation), {
+          direction: "top",
+          sticky: true,
+          opacity: 1,
+          className: "permit-hover-tooltip"
+        });
+        marker.addTo(markerLayer);
+        markers.push(marker);
+      }
+
       if (markers.length) {
         permitMap.fitBounds(L.featureGroup(markers).getBounds().pad(0.12), { maxZoom: 16 });
       } else {
         permitMap.setView(mapCenter, 13);
       }
-      mapStatus.textContent = `${markers.length} of ${entries.length} parcels mapped${notLocated ? `; ${notLocated} not found` : ""}${missingParcelNumbers ? `; ${missingParcelNumbers} permits lack a parcel number` : ""}.`;
+      mapStatus.textContent = `${markers.length} of ${entries.length} unique parcels mapped from SQL cache${notLocated ? `; ${notLocated} missing cached locations` : ""}${missingParcelNumbers ? `; ${missingParcelNumbers} permits lack a valid parcel number` : ""}.`;
     }
 
     function switchView(view) {
@@ -962,7 +940,7 @@
       if (showMap) {
         if (initializeMap()) {
           permitMap.invalidateSize();
-          renderMap(filteredRecords());
+          renderMap(filteredRecords({ includeValuation: false }));
         }
       } else {
         mapRenderId += 1;
@@ -1008,7 +986,7 @@
         statusCell.append(status);
         addCell(row, formatDate(record.issue_date || record.applied_date));
         addCell(row, formatMoney(record.valuation), "money");
-        addCell(row, record._reportTitle);
+        addCell(row, [...record._reportTitles].join(", "));
         permitRows.append(row);
       });
 
@@ -1023,7 +1001,7 @@
       const moreButton = document.querySelector("#show-more");
       moreButton.hidden = shown.length >= filtered.length;
       moreButton.textContent = `Show ${Math.min(pageSize, filtered.length - shown.length).toLocaleString()} more`;
-      if (currentView === "map") renderMap(filtered);
+      if (currentView === "map") renderMap(filteredRecords({ includeValuation: false }));
     }
 
     function appendDetail(parent, label, value) {
@@ -1075,7 +1053,7 @@
 
     function showDetails(record) {
       document.querySelector("#detail-title").textContent = displayValue(record.permit_number);
-      document.querySelector("#detail-subtitle").textContent = `${displayValue(record.address)} · ${record._reportTitle}`;
+      document.querySelector("#detail-subtitle").textContent = `${displayValue(record.address)} · ${[...record._reportTitles].join(", ")}`;
       const body = document.querySelector("#detail-body");
       body.replaceChildren();
       const grid = document.createElement("dl");
@@ -1111,6 +1089,28 @@
       }
       dialog.showModal();
     }
+
+    document.querySelector("#load-database").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      if (location.protocol === "file:") {
+        notice.textContent = "Start the local app with python -m realty_data_engine --serve, then open http://127.0.0.1:8765 to load SQL data.";
+        return;
+      }
+      button.disabled = true;
+      button.textContent = "Loading database...";
+      notice.textContent = "";
+      try {
+        const response = await fetch("/api/dataset", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `Database request failed (${response.status})`);
+        setDataset(data, "Azure SQL");
+      } catch (error) {
+        notice.textContent = error.message;
+      } finally {
+        button.disabled = false;
+        button.textContent = "Load from database";
+      }
+    });
 
     fileInput.addEventListener("change", async (event) => {
       const [file] = event.target.files;
