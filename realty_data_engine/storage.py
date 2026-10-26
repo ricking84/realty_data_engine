@@ -20,6 +20,8 @@ SCHEMA_STATEMENTS = (
         id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
         source_url NVARCHAR(450) NOT NULL,
         title NVARCHAR(500) NULL,
+        category NVARCHAR(20) NOT NULL CONSTRAINT DF_building_activity_reports_category DEFAULT N'other',
+        blob_uri NVARCHAR(2048) NULL,
         content_sha256 CHAR(64) NOT NULL,
         permit_count INT NOT NULL DEFAULT 0,
         ingested_at DATETIME2 NOT NULL,
@@ -27,11 +29,16 @@ SCHEMA_STATEMENTS = (
     )
     """,
     """
+    IF COL_LENGTH(N'dbo.building_activity_reports', N'category') IS NULL
+        ALTER TABLE dbo.building_activity_reports ADD category NVARCHAR(20) NOT NULL
+            CONSTRAINT DF_building_activity_reports_category DEFAULT N'other';
+    IF COL_LENGTH(N'dbo.building_activity_reports', N'blob_uri') IS NULL
+        ALTER TABLE dbo.building_activity_reports ADD blob_uri NVARCHAR(2048) NULL;
+    """,
+    """
     IF OBJECT_ID(N'dbo.building_permits', N'U') IS NULL
     CREATE TABLE dbo.building_permits (
         id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-        report_id INT NOT NULL
-            CONSTRAINT FK_building_permits_report REFERENCES dbo.building_activity_reports(id) ON DELETE CASCADE,
         page_number INT NOT NULL,
         line_number INT NOT NULL,
         permit_number NVARCHAR(100) NULL,
@@ -75,15 +82,84 @@ SCHEMA_STATEMENTS = (
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_building_permits_permit_number')
     CREATE INDEX IX_building_permits_permit_number ON dbo.building_permits (permit_number)
     """,
+    """
+    IF OBJECT_ID(N'dbo.building_permit_reports', N'U') IS NULL
+    CREATE TABLE dbo.building_permit_reports (
+        report_id INT NOT NULL,
+        permit_id INT NOT NULL,
+        CONSTRAINT PK_building_permit_reports PRIMARY KEY (report_id, permit_id)
+    );
+    IF COL_LENGTH(N'dbo.building_permits', N'report_id') IS NOT NULL
+    BEGIN
+        EXEC sys.sp_executesql N'
+            INSERT INTO dbo.building_permit_reports (report_id, permit_id)
+            SELECT p.report_id, p.id
+            FROM dbo.building_permits p
+            WHERE NOT EXISTS (
+                SELECT 1 FROM dbo.building_permit_reports link
+                WHERE link.report_id = p.report_id AND link.permit_id = p.id
+            );';
+        IF EXISTS (
+            SELECT 1 FROM sys.foreign_keys
+            WHERE name = N'FK_building_permits_report'
+              AND parent_object_id = OBJECT_ID(N'dbo.building_permits')
+        )
+            ALTER TABLE dbo.building_permits DROP CONSTRAINT FK_building_permits_report;
+        ALTER TABLE dbo.building_permits DROP COLUMN report_id;
+    END;
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = N'FK_building_permit_reports_report'
+          AND parent_object_id = OBJECT_ID(N'dbo.building_permit_reports')
+    )
+        ALTER TABLE dbo.building_permit_reports ADD CONSTRAINT FK_building_permit_reports_report
+            FOREIGN KEY (report_id) REFERENCES dbo.building_activity_reports(id) ON DELETE CASCADE;
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = N'FK_building_permit_reports_permit'
+          AND parent_object_id = OBJECT_ID(N'dbo.building_permit_reports')
+    )
+        ALTER TABLE dbo.building_permit_reports ADD CONSTRAINT FK_building_permit_reports_permit
+            FOREIGN KEY (permit_id) REFERENCES dbo.building_permits(id) ON DELETE CASCADE;
+    """,
+    """
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE name = N'UX_building_permits_permit_number'
+          AND object_id = OBJECT_ID(N'dbo.building_permits')
+    )
+    CREATE UNIQUE INDEX UX_building_permits_permit_number
+        ON dbo.building_permits (permit_number)
+        WHERE permit_number IS NOT NULL AND permit_number <> N'';
+    """,
 )
 
 _INSERT_PERMIT_SQL = """
 INSERT INTO dbo.building_permits (
-    report_id, page_number, line_number, permit_number, issue_date, address, permit_type,
+    page_number, line_number, permit_number, issue_date, address, permit_type,
     description, contractor, owner, subdivision, valuation, square_feet, raw_data,
     applied_date, permit_subtype, parcel_number, status, total_fees, total_paid, contacts_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) OUTPUT INSERTED.id VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
+
+_UPDATE_PERMIT_SQL = """
+UPDATE dbo.building_permits SET
+    page_number = ?, line_number = ?, permit_number = ?, issue_date = ?, address = ?, permit_type = ?,
+    description = ?, contractor = ?, owner = ?, subdivision = ?, valuation = ?, square_feet = ?, raw_data = ?,
+    applied_date = ?, permit_subtype = ?, parcel_number = ?, status = ?, total_fees = ?, total_paid = ?,
+    contacts_json = ?
+WHERE id = ?
+"""
+
+
+def _permit_values(record: PermitRecord) -> tuple:
+    return (
+        record.page_number, record.row_number, (record.permit_number or "").strip() or None,
+        record.issue_date, record.address, record.permit_type, record.description, record.contractor,
+        record.owner, record.subdivision, record.valuation, record.square_feet, record.raw_json,
+        record.applied_date, record.permit_subtype, record.parcel_number, record.status,
+        record.total_fees, record.total_paid, record.contacts_json,
+    )
 
 
 def _quote_odbc_value(value: str) -> str:
@@ -154,47 +230,79 @@ class AzureSqlStore:
         row = cursor.fetchone()
         return (int(row[0]), str(row[1])) if row else None
 
-    def save_report(self, source_url: str, title: str, content_sha256: str, records: Sequence[PermitRecord]) -> bool:
+    def save_report(
+        self,
+        source_url: str,
+        title: str,
+        content_sha256: str,
+        records: Sequence[PermitRecord],
+        category: str = "other",
+        blob_uri: str | None = None,
+        force: bool = False,
+    ) -> bool:
         """Insert or replace a report and its permits. Returns False if the stored copy is unchanged."""
         existing = self.get_report(source_url)
-        if existing and existing[1] == content_sha256:
+        cursor = self.connection.cursor()
+        if existing and existing[1] == content_sha256 and not force:
+            cursor.execute(
+                "UPDATE dbo.building_activity_reports SET title = ?, category = ?, blob_uri = ? WHERE id = ?",
+                title, category, blob_uri, existing[0],
+            )
+            self.connection.commit()
             logger.info("Report %s unchanged; skipping", source_url)
             return False
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        cursor = self.connection.cursor()
         try:
             if existing:
                 report_id = existing[0]
-                cursor.execute("DELETE FROM dbo.building_permits WHERE report_id = ?", report_id)
+                cursor.execute("DELETE FROM dbo.building_permit_reports WHERE report_id = ?", report_id)
                 cursor.execute(
-                    "UPDATE dbo.building_activity_reports SET title = ?, content_sha256 = ?, permit_count = ?, "
-                    "ingested_at = ? WHERE id = ?",
-                    title, content_sha256, len(records), now, report_id,
+                    "UPDATE dbo.building_activity_reports SET title = ?, category = ?, blob_uri = ?, "
+                    "content_sha256 = ?, permit_count = ?, ingested_at = ? WHERE id = ?",
+                    title, category, blob_uri, content_sha256, len(records), now, report_id,
                 )
             else:
                 cursor.execute(
-                    "INSERT INTO dbo.building_activity_reports (source_url, title, content_sha256, permit_count, "
-                    "ingested_at) OUTPUT INSERTED.id VALUES (?, ?, ?, ?, ?)",
-                    source_url, title, content_sha256, len(records), now,
+                    "INSERT INTO dbo.building_activity_reports (source_url, title, category, blob_uri, "
+                    "content_sha256, permit_count, ingested_at) OUTPUT INSERTED.id VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    source_url, title, category, blob_uri, content_sha256, len(records), now,
                 )
                 report_id = int(cursor.fetchone()[0])
 
-            if records:
-                if hasattr(cursor, "fast_executemany"):
-                    cursor.fast_executemany = True
-                cursor.executemany(
-                    _INSERT_PERMIT_SQL,
-                    [
-                        (
-                            report_id, r.page_number, r.row_number, r.permit_number, r.issue_date, r.address,
-                            r.permit_type, r.description, r.contractor, r.owner, r.subdivision, r.valuation,
-                            r.square_feet, r.raw_json, r.applied_date, r.permit_subtype, r.parcel_number,
-                            r.status, r.total_fees, r.total_paid, r.contacts_json,
-                        )
-                        for r in records
-                    ],
+            for record in records:
+                values = _permit_values(record)
+                permit_number = values[2]
+                permit_row = None
+                if permit_number:
+                    cursor.execute(
+                        "SELECT id, issue_date FROM dbo.building_permits WHERE permit_number = ?",
+                        permit_number,
+                    )
+                    permit_row = cursor.fetchone()
+
+                if permit_row:
+                    permit_id = int(permit_row[0])
+                    existing_issue_date = permit_row[1]
+                    if existing_issue_date is None or (
+                        record.issue_date is not None and record.issue_date >= existing_issue_date
+                    ):
+                        cursor.execute(_UPDATE_PERMIT_SQL, *values, permit_id)
+                else:
+                    cursor.execute(_INSERT_PERMIT_SQL, *values)
+                    permit_id = int(cursor.fetchone()[0])
+
+                cursor.execute(
+                    "IF NOT EXISTS (SELECT 1 FROM dbo.building_permit_reports WHERE report_id = ? AND permit_id = ?) "
+                    "INSERT INTO dbo.building_permit_reports (report_id, permit_id) VALUES (?, ?)",
+                    report_id, permit_id, report_id, permit_id,
                 )
+
+            cursor.execute(
+                "DELETE FROM dbo.building_permits "
+                "WHERE NOT EXISTS (SELECT 1 FROM dbo.building_permit_reports link "
+                "WHERE link.permit_id = dbo.building_permits.id)"
+            )
             self.connection.commit()
         except Exception:
             self.connection.rollback()

@@ -53,6 +53,22 @@ def test_extract_pdf_links():
     assert archives == ["https://www.bentonville.ar.gov/Archive.aspx?AMID=40"]
 
 
+def test_extract_pdf_links_preserves_report_section_category():
+    html = """
+    <h3>Bi-Weekly Reports</h3>
+    <a href="/DocumentCenter/View/1/October-1-to-October-15">October 1 to October 15</a>
+    <h3>Monthly Reports</h3>
+    <a href="/DocumentCenter/View/2/September-2026">September 2026</a>
+    """
+
+    links, _ = scraper.extract_pdf_links(html, scraper.REPORTS_PAGE_URL)
+
+    assert [(link.title, link.category) for link in links] == [
+        ("October 1 to October 15", "biweekly"),
+        ("September 2026", "monthly"),
+    ]
+
+
 def test_find_report_links_follows_archive_listing():
     session = FakeSession({
         scraper.REPORTS_PAGE_URL: FakeResponse(PAGE_HTML),
@@ -63,6 +79,8 @@ def test_find_report_links_follows_archive_listing():
 
     assert len(urls) == 4
     assert "https://www.bentonville.ar.gov/Archive.aspx?ADID=10" in urls
+    archive_link = next(link for link in scraper.find_report_links(session=session) if link.url.endswith("ADID=10"))
+    assert archive_link.category == "yearly"
 
 
 def test_download_pdf_rejects_non_pdf():

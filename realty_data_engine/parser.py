@@ -162,6 +162,7 @@ def _is_summary_row(values: list[str]) -> bool:
 
 
 _PERMIT_NUMBER = re.compile(r"^[A-Z][A-Z0-9]*-\d+$")
+_LEGACY_PERMIT_NUMBER = re.compile(r"^\d{2}-\d{8}$")
 _PARCEL_NUMBER = re.compile(r"\b\d{2}-\d{5}-\d{3}\b")
 _CONTACT_HEADER = re.compile(r"contact\s+type.*contact\s+name", re.IGNORECASE)
 _CONTACT_TYPE = re.compile(r"^[A-Z][A-Z &/-]*$")
@@ -313,6 +314,100 @@ def _parse_report_pages(pdf) -> list[PermitRecord]:
     return records
 
 
+def _parse_legacy_report_pages(pdf) -> list[PermitRecord]:
+    records: list[PermitRecord] = []
+    current: PermitRecord | None = None
+
+    for page_number, page in enumerate(pdf.pages, start=1):
+        for words in _page_lines(page):
+            text = _clean(" ".join(word["text"] for word in words))
+            permit_word = next(
+                (word["text"] for word in words if _LEGACY_PERMIT_NUMBER.fullmatch(word["text"])),
+                None,
+            )
+            if permit_word and "CONTINUED" not in text.upper():
+                application = _column_text(words, 100, 386)
+                application_parts = application.split()
+                application_code = " ".join(application_parts[:2])
+                application_description = " ".join(application_parts[2:])
+                address = _column_text(words, 386, 535)
+                address = re.sub(r"\s+M$", "", address).strip()
+                owner = _column_text(words, 535, float("inf"))
+
+                current = PermitRecord(page_number=page_number, row_number=len(records) + 1)
+                current.permit_number = permit_word
+                current.permit_subtype = application_code or None
+                current.permit_type = application_description or application or None
+                current.address = address or None
+                current.owner = owner or None
+                current.raw.update({
+                    "permit_number": permit_word,
+                    "application_type": application,
+                    "address": address,
+                    "owner": owner,
+                })
+                records.append(current)
+                continue
+
+            if current is None:
+                continue
+
+            application_date_text = _column_text(words, 100, 230)
+            application_date = parse_date(application_date_text)
+            if application_date and current.applied_date is None:
+                current.applied_date = application_date
+                current.raw["applied_date"] = application_date_text
+
+            valuation_text = _column_text(words, 230, 386)
+            if valuation_text and current.valuation is None:
+                current.valuation = parse_decimal(valuation_text)
+                if current.valuation is not None:
+                    current.raw["valuation"] = valuation_text
+
+            parcel_text = _column_text(words, 386, 587)
+            parcel = re.search(r"\b\d{2}-\d{5}-\d{3}(?:-[\d-]+)+", parcel_text)
+            if parcel and current.parcel_number is None:
+                current.parcel_number = parcel.group().rstrip("-")
+                current.raw["parcel_number"] = current.parcel_number
+
+            structure = _column_text(words, 36, 386)
+            structure_match = re.match(r"STRUCTURE\s*-\s*(.*)", structure, re.IGNORECASE)
+            if structure_match:
+                value = _clean(structure_match.group(1))
+                current.description = _append_text(current.description, value)
+                current.raw["structure"] = _append_text(
+                    str(current.raw.get("structure", "")), value
+                )
+                square_feet = re.search(r"\b([\d,]+)\s*SF\b", value, re.IGNORECASE)
+                if square_feet and current.square_feet is None:
+                    current.square_feet = parse_int(square_feet.group(1))
+
+            permit_type = re.match(r"PERMIT\s+TYPE\s*-\s*(.*)", structure, re.IGNORECASE)
+            if permit_type:
+                current.raw["building_permit_type"] = _clean(permit_type.group(1))
+
+            issue_text = _column_text(words, 387, 460)
+            issue_date_match = re.search(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b", issue_text)
+            issue_date_value = issue_date_match.group() if issue_date_match else issue_text
+            issue_date = parse_date(issue_date_value)
+            if issue_date and current.issue_date is None:
+                current.issue_date = issue_date
+                current.raw["issue_date"] = issue_date_value
+                issue_valuation_text = _column_text(words, 460, 538)
+                if issue_valuation_text and current.valuation is None:
+                    current.valuation = parse_decimal(issue_valuation_text)
+                    if current.valuation is not None:
+                        current.raw["valuation"] = issue_valuation_text
+
+            contractor = _column_text(words, 538, float("inf"))
+            contractor = re.sub(r"SUBCONTRACTOR\s*\(S\)", "", contractor, flags=re.IGNORECASE).strip()
+            if contractor and contractor.upper() != "APPLICANT":
+                current.contractor = _append_text(current.contractor, contractor)
+                current.raw["contractor"] = current.contractor
+
+    return records
+
+
 def records_from_tables(tables: list[tuple[int, list[list[object]]]]) -> list[PermitRecord]:
     """Convert extracted ``(page_number, table)`` pairs into permit records.
 
@@ -358,6 +453,10 @@ def records_from_tables(tables: list[tuple[int, list[list[object]]]]) -> list[Pe
 def parse_pdf(content: bytes) -> list[PermitRecord]:
     """Parse the permit table(s) out of a building activity report PDF."""
     with pdfplumber.open(io.BytesIO(content)) as pdf:
+        records = _parse_legacy_report_pages(pdf)
+        if records:
+            return _add_bentonville_location(records)
+
         records = _parse_report_pages(pdf)
         if records:
             return _add_bentonville_location(records)

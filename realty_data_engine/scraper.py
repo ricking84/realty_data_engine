@@ -26,6 +26,7 @@ _ARCHIVE_LIST_RE = re.compile(r"Archive\.aspx\?AMID=\d+", re.IGNORECASE)
 class ReportLink:
     url: str
     title: str
+    category: str = "other"
 
 
 def _new_session() -> requests.Session:
@@ -52,7 +53,17 @@ def extract_pdf_links(html: str, base_url: str) -> tuple[list[ReportLink], list[
             continue
         if _PDF_HREF_RE.search(href):
             title = " ".join(anchor.get_text(" ", strip=True).split()) or url.rsplit("/", 1)[-1]
-            reports.setdefault(url, ReportLink(url=url, title=title))
+            heading = anchor.find_previous(["h1", "h2", "h3", "h4"])
+            heading_text = " ".join(heading.get_text(" ", strip=True).lower().split()) if heading else ""
+            if "bi-weekly" in heading_text or "biweekly" in heading_text:
+                category = "biweekly"
+            elif "monthly" in heading_text:
+                category = "monthly"
+            elif "yearly" in heading_text or "annual" in heading_text:
+                category = "yearly"
+            else:
+                category = "other"
+            reports.setdefault(url, ReportLink(url=url, title=title, category=category))
         elif _ARCHIVE_LIST_RE.search(href) and _same_site(url, base_url) and url not in archive_pages:
             archive_pages.append(url)
     return list(reports.values()), archive_pages
@@ -76,7 +87,7 @@ def find_report_links(
         archive_response.raise_for_status()
         archive_links, _ = extract_pdf_links(archive_response.text, archive_url)
         for link in archive_links:
-            found.setdefault(link.url, link)
+            found.setdefault(link.url, ReportLink(link.url, link.title, "yearly"))
     return list(found.values())
 
 
